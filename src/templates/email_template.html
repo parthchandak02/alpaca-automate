@@ -1,0 +1,64 @@
+<!--
+Email Template for Alpaca Trading Bot Notifications
+
+This template is used for all email notifications (order placed, filled, cancelled, etc.)
+Edit this file to customize the email design and layout.
+
+Template Variables:
+- {{title}} - Email title (e.g., "✅ Order Placed")
+- {{description}} - Main description text
+- {{fields_table}} - HTML table with order details (auto-generated)
+- {{footer}} - Footer text (e.g., "Company Name • Order 1/8")
+
+Design Guidelines:
+- Use inline styles only (email clients don't support external CSS)
+- Use tables for layout (better email client compatibility)
+- Keep it simple and minimal
+- Test in multiple email clients before deploying changes
+-->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f5f5f5;">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="padding: 30px 30px 20px 30px; border-bottom: 1px solid #e5e5e5;">
+                            <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #1a1a1a; line-height: 1.3;">
+                                {{title}}
+                            </h1>
+                        </td>
+                    </tr>
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 25px 30px;">
+                            <p style="margin: 0 0 20px 0; font-size: 16px; color: #333333; line-height: 1.6;">
+                                {{description}}
+                            </p>
+                            {{fields_table}}
+                            {{footer}}
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 20px 30px; background-color: #f9f9f9; border-top: 1px solid #e5e5e5; border-radius: 0 0 8px 8px;">
+                            <p style="margin: 0; font-size: 12px; color: #999999; text-align: center; line-height: 1.5;">
+                                Alpaca Trading Bot<br>
+                                <span style="color: #cccccc;">Automated order notifications</span>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+

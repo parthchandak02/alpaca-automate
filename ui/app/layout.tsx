@@ -1,21 +1,28 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+"use client"
+
+import { Poppins } from "next/font/google";
+import { SWRConfig } from "swr";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const poppins = Poppins({
+  weight: ["300", "400", "500", "600", "700"],
   subsets: ["latin"],
+  variable: "--font-poppins",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: "Alpaca Order Manager",
-  description: "Monitor and manage conditional orders",
-};
+// SWR fetcher function
+const fetcher = async (url: string) => {
+  const res = await fetch(url)
+  if (!res.ok) {
+    const error = new Error('An error occurred while fetching the data.')
+    // @ts-ignore
+    error.info = await res.json()
+    // @ts-ignore
+    error.status = res.status
+    throw error
+  }
+  return res.json()
+}
 
 export default function RootLayout({
   children,
@@ -25,9 +32,22 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${poppins.variable} font-sans antialiased`}
+        style={{ fontFamily: "var(--font-poppins), Poppins, sans-serif" }}
       >
-        {children}
+        <SWRConfig
+          value={{
+            fetcher,
+            refreshInterval: 5000, // Poll every 5 seconds
+            revalidateOnFocus: true,
+            revalidateOnReconnect: true,
+            dedupingInterval: 2000, // Dedupe requests within 2 seconds
+            errorRetryCount: 3,
+            errorRetryInterval: 5000,
+          }}
+        >
+          {children}
+        </SWRConfig>
       </body>
     </html>
   );

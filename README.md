@@ -37,7 +37,9 @@ UI available at `http://localhost:3000` (configurable via `PORT_UI` in `.env`)
 alpaca-trading/
 ├── src/                    # Core Python code
 │   ├── gtt_monitor.py     # Main monitor: loads orders, watches prices, places orders
-│   └── api_server.py      # Flask API: exposes data to web UI
+│   ├── api_server.py      # Flask API: exposes data to web UI
+│   └── templates/         # Email templates
+│       └── email_template.html  # HTML email template (editable)
 ├── ui/                     # Next.js web interface
 │   ├── app/page.tsx       # Main UI component
 │   └── components/        # Reusable UI components
@@ -95,12 +97,15 @@ alpaca-trading/
   - `/api/prices` - Current market prices
   - `/api/account` - Account info (buying power, equity)
   - `/api/status` - Loading progress
+  - `/api/force-fill-order` - Force fill any pending order (bypasses sequential logic)
   - `/api/simulate-fill` - Force place current order (testing)
 
 **`ui/app/page.tsx`**:
 - Two tabs: "Orders" (Active/Completed/Cancelled) and "GTT" (conditional orders)
 - Real-time updates every 5 seconds
 - Shows current prices, order status, account summary
+- Force Fill button: Manually fill any pending order (useful for testing)
+- Status icons: Trading mode (paper/live), sync status, market status with hover tooltips
 
 ## CSV Format
 
@@ -122,6 +127,36 @@ Environment variables (`.env`):
 - `PORT_API=8080`: Flask API port
 - `PORT_UI=3000`: Next.js UI port
 - `POLL_INTERVAL_SECONDS=60`: Polling interval (fallback mode)
+- `DISCORD_WEBHOOK_URL`: Optional - Discord webhook for notifications
+- `EMAIL_NOTIFICATIONS_ENABLED=true`: Optional - Enable email notifications
+- `SMTP_SERVER=smtp.gmail.com`: Optional - SMTP server (default: Gmail)
+- `SMTP_PORT=587`: Optional - SMTP port (default: 587)
+- `SMTP_USERNAME=your-email@gmail.com`: Optional - Your email address
+- `SMTP_PASSWORD=your-app-password`: Optional - Gmail App Password (not regular password)
+- `EMAIL_TO=recipient@example.com`: Optional - Recipient email address (comma-separated for multiple recipients)
+
+### Email Notifications Setup (Gmail Example)
+
+1. **Enable 2-Factor Authentication** on your Gmail account
+2. **Generate an App Password**:
+   - Go to Google Account → Security → 2-Step Verification → App passwords
+   - Create a new app password for "Mail"
+   - Copy the 16-character password
+3. **Add to `.env`**:
+   ```bash
+   EMAIL_NOTIFICATIONS_ENABLED=true
+   SMTP_SERVER=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USERNAME=your-email@gmail.com
+   SMTP_PASSWORD=your-16-char-app-password
+   EMAIL_TO=recipient1@example.com,recipient2@example.com
+   ```
+   **Note**: For multiple recipients, separate email addresses with commas (no spaces needed).
+4. **Restart PM2**: `pm2 restart gtt-app --update-env`
+
+**Note**: Email notifications are sent for **all order status changes** including: placed, filled, partially filled, cancelled, expired, rejected, and more. They work alongside Discord notifications (both can be enabled simultaneously).
+
+**Customizing Email Templates**: Edit `src/templates/email_template.html` to customize the email design. The template uses simple variable replacement (`{{title}}`, `{{description}}`, etc.) and supports HTML with inline CSS.
 
 ## PM2 Commands
 

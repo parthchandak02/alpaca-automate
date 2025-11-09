@@ -66,7 +66,8 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="rounded-md border">
-      <Table>
+      <div className="overflow-x-auto">
+        <Table>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
@@ -92,6 +93,14 @@ export function DataTable<TData, TValue>({
                 <TableRow
                   data-state={row.getIsSelected() && "selected"}
                   className={row.getIsExpanded() ? "bg-muted/50" : ""}
+                  onClick={() => {
+                    if (getRowCanExpand && getRowCanExpand(row)) {
+                      row.toggleExpanded()
+                    }
+                  }}
+                  style={{
+                    cursor: getRowCanExpand && getRowCanExpand(row) ? "pointer" : "default"
+                  }}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -119,6 +128,7 @@ export function DataTable<TData, TValue>({
           )}
         </TableBody>
       </Table>
+      </div>
     </div>
   )
 }

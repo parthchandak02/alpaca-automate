@@ -7,7 +7,7 @@ from flask_cors import CORS
 import json
 import logging
 from typing import Dict, List
-from gtt_monitor import GTTOrderManager, SymbolLadder, SequentialOrder
+from .gtt_monitor import GTTOrderManager, SymbolLadder, SequentialOrder
 from alpaca.trading.requests import GetOrdersRequest
 try:
     from alpaca.trading.enums import QueryOrderStatus
@@ -32,11 +32,49 @@ CORS(app)  # Enable CORS for Next.js frontend
 # Global manager instance (will be initialized by the monitor)
 manager: GTTOrderManager = None
 
+# Global trading mode (paper vs live) - set when manager is initialized
+trading_mode: bool = True  # Default to paper for safety
+
+# Global loading status for progress tracking
+loading_status = {
+    "is_loading": False,
+    "current_step": "",
+    "progress": 0,
+    "total": 0,
+    "current_symbol": "",
+    "loaded_symbols": [],
+    "message": ""
+}
 
 def set_manager(mgr: GTTOrderManager):
     """Set the global manager instance"""
-    global manager
+    global manager, trading_mode
     manager = mgr
+    # Extract paper trading mode from the manager
+    trading_mode = getattr(mgr.trading_client, 'is_paper', True)  # Default to paper
+
+def set_loading_status(is_loading: bool, step: str = "", progress: int = 0, total: int = 0, symbol: str = "", message: str = ""):
+    """Update loading status for progress tracking"""
+    global loading_status
+    loading_status["is_loading"] = is_loading
+    loading_status["current_step"] = step
+    loading_status["progress"] = progress
+    loading_status["total"] = total
+    loading_status["current_symbol"] = symbol
+    loading_status["message"] = message
+    if symbol and symbol not in loading_status["loaded_symbols"]:
+        loading_status["loaded_symbols"].append(symbol)
+
+def clear_loading_status():
+    """Clear loading status"""
+    global loading_status
+    loading_status["is_loading"] = False
+    loading_status["current_step"] = ""
+    loading_status["progress"] = 0
+    loading_status["total"] = 0
+    loading_status["current_symbol"] = ""
+    loading_status["loaded_symbols"] = []
+    loading_status["message"] = ""
 
 
 @app.route('/api/status', methods=['GET'])
@@ -52,16 +90,19 @@ def get_orders():
     logger.info("GET /api/orders - Request received")
     if not manager:
         logger.error("Manager not initialized")
+        # Set loading status to indicate manager is initializing
+        set_loading_status(True, "Initializing", 0, 0, "", "Manager is initializing, please wait...")
         return jsonify({"error": "Manager not initialized"}), 503
     
     try:
-        set_loading_status(True, "Fetching orders from Alpaca", 0, 0, "", "Connecting to Alpaca API...")
+        # Set initial loading status BEFORE processing starts
+        set_loading_status(True, "Fetching orders from Alpaca", 0, 4, "", "Connecting to Alpaca API...")
         
         # Get active orders from Alpaca
         active_orders = []
         alpaca_orders_list = []
         try:
-            set_loading_status(True, "Fetching orders from Alpaca", 1, 3, "", "Requesting orders from Alpaca...")
+            set_loading_status(True, "Fetching orders from Alpaca", 1, 4, "", "Requesting orders from Alpaca...")
             # Use GetOrdersRequest for proper API usage
             if QueryOrderStatus:
                 orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=100)
@@ -70,7 +111,7 @@ def get_orders():
                 orders_request = GetOrdersRequest(limit=100)
             alpaca_orders_list = manager.trading_client.get_orders(orders_request)
             
-            set_loading_status(True, "Processing Alpaca orders", 2, 3, "", f"Processing {len(alpaca_orders_list)} orders from Alpaca...")
+            set_loading_status(True, "Processing Alpaca orders", 2, 4, "", f"Processing {len(alpaca_orders_list)} orders from Alpaca...")
             for order in alpaca_orders_list:
                 active_orders.append({
                     "id": order.id,
@@ -134,6 +175,7 @@ def get_orders():
                     "is_current": idx == ladder.current_order_index,
                 })
         
+        # Clear loading status when done
         set_loading_status(False, "Complete", 4, 4, "", f"Loaded {len(gtt_orders)} GTT orders and {len(active_orders)} active orders")
         
         logger.info(f"Returning {len(active_orders)} active orders and {len(gtt_orders)} GTT orders")
@@ -166,6 +208,156 @@ def get_prices():
         })
     except Exception as e:
         logger.error(f"Error in get_prices: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/force-fill-order', methods=['POST'])
+def force_fill_order():
+    """Force fill a specific order by index - bypasses sequential logic.
+    
+    Allows force filling any pending order, not just the current one.
+    If order is pending, places it first, then marks as filled.
+    """
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        symbol = data.get('symbol', '').upper()
+        order_index = data.get('order_index')  # 0-based index
+        
+        if not symbol:
+            return jsonify({"error": "Symbol required"}), 400
+        
+        if order_index is None:
+            return jsonify({"error": "order_index required"}), 400
+        
+        if symbol not in manager.ladders:
+            return jsonify({"error": f"Symbol {symbol} not found"}), 404
+        
+        ladder = manager.ladders[symbol]
+        
+        # Check if this was the current order BEFORE we modify anything
+        was_current_order = order_index == ladder.current_order_index
+        
+        # Validate order index
+        if order_index < 0 or order_index >= len(ladder.orders):
+            return jsonify({"error": f"Invalid order_index. Must be between 0 and {len(ladder.orders) - 1}"}), 400
+        
+        target_order = ladder.orders[order_index]
+        
+        # Check if order is already filled
+        if target_order.status == "filled":
+            return jsonify({
+                "error": f"Order {order_index + 1} is already filled",
+                "status": target_order.status
+            }), 400
+        
+        # If order is pending and hasn't been placed yet, place it first
+        if target_order.status == "pending" and not target_order.order_id:
+            try:
+                # Check account buying power
+                account = manager.trading_client.get_account()
+                buying_power = float(account.buying_power)
+                order_value = target_order.price * target_order.amount
+                
+                if order_value > buying_power:
+                    return jsonify({
+                        "error": f"Insufficient buying power. Required: ${order_value:.2f}, Available: ${buying_power:.2f}"
+                    }), 400
+                
+                # Place limit order first
+                from alpaca.trading.requests import LimitOrderRequest
+                from alpaca.trading.enums import OrderSide, TimeInForce
+                
+                order_request = LimitOrderRequest(
+                    symbol=symbol,
+                    qty=target_order.amount,
+                    side=OrderSide.BUY,
+                    limit_price=target_order.price,
+                    time_in_force=TimeInForce.DAY
+                )
+                
+                placed_order = manager.trading_client.submit_order(order_data=order_request)
+                target_order.order_id = placed_order.id
+                target_order.status = "placed"
+                
+                logger.info(f"FORCE-PLACED: {symbol} Order {order_index + 1} - "
+                          f"Limit: ${target_order.price:.2f}, Order ID: {placed_order.id}")
+            except Exception as e:
+                logger.error(f"Error placing order: {e}", exc_info=True)
+                return jsonify({"error": f"Failed to place order: {str(e)}"}), 500
+        
+        # Check if order has been placed (has order_id)
+        if not target_order.order_id:
+            return jsonify({
+                "error": f"Order {order_index + 1} has not been placed yet (no order_id)",
+                "status": target_order.status
+            }), 400
+        
+        # Simulate fill: mark as filled
+        target_order.status = "filled"
+        logger.info(f"FORCE-FILLED: {symbol} Order {order_index + 1} marked as filled")
+        
+        # Update current_order_index to point to the first unfilled order
+        # IMPORTANT: Start from index 0 to ensure we check ALL orders, not just from current position
+        # This prevents skipping orders that should remain as PLACED
+        ladder.current_order_index = 0
+        while ladder.current_order_index < len(ladder.orders):
+            current = ladder.orders[ladder.current_order_index]
+            # If current order is filled or already placed (has order_id), advance to next
+            if current.status == "filled" or (current.order_id and current.status not in ["pending"]):
+                # Only advance if we're not already at the end
+                if ladder.current_order_index < len(ladder.orders) - 1:
+                    ladder.advance_to_next_order()
+                else:
+                    # Last order is filled/placed - mark as completed
+                    ladder.advance_to_next_order()
+                    break
+            else:
+                # Found first unfilled/unplaced order - this is now the current order
+                break
+        
+        # Only auto-place the next order if we force-filled the CURRENT order (sequential behavior)
+        # If we force-filled a future order, don't auto-place anything
+        if was_current_order:
+            next_order = ladder.get_current_order()
+            if next_order and next_order.status == "pending" and not next_order.order_id:
+                try:
+                    account = manager.trading_client.get_account()
+                    buying_power = float(account.buying_power)
+                    order_value = next_order.price * next_order.amount
+                    
+                    if order_value <= buying_power:
+                        from alpaca.trading.requests import LimitOrderRequest
+                        from alpaca.trading.enums import OrderSide, TimeInForce
+                        
+                        order_request = LimitOrderRequest(
+                            symbol=symbol,
+                            qty=next_order.amount,
+                            side=OrderSide.BUY,
+                            limit_price=next_order.price,
+                            time_in_force=TimeInForce.DAY
+                        )
+                        
+                        placed_order = manager.trading_client.submit_order(order_data=order_request)
+                        next_order.order_id = placed_order.id
+                        next_order.status = "placed"
+                        
+                        logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
+                                  f"Limit: ${next_order.price:.2f}, Order ID: {placed_order.id}")
+                except Exception as e:
+                    logger.warning(f"Could not auto-place next order: {e}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Order {order_index + 1} for {symbol} force filled",
+            "order_index": order_index + 1,
+            "was_current": was_current_order,
+            "new_current_index": ladder.current_order_index
+        })
+    except Exception as e:
+        logger.error(f"Error in force_fill_order: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -377,11 +569,15 @@ def get_account():
     try:
         account = manager.trading_client.get_account()
         logger.debug("Account info retrieved successfully")
+        # Use the global trading_mode set when manager was initialized
+        global trading_mode
+        
         return jsonify({
             "buying_power": float(account.buying_power),
             "cash": float(account.cash),
             "portfolio_value": float(account.portfolio_value),
             "equity": float(account.equity),
+            "is_paper": trading_mode,
         })
     except Exception as e:
         logger.error(f"Error in get_account: {e}", exc_info=True)

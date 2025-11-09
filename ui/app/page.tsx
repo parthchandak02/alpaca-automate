@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useMemo } from "react"
+import useSWR, { mutate } from "swr"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -9,56 +10,144 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { DataTable, ColumnHeaderWithDropdown } from "@/components/data-table"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ColumnDef } from "@tanstack/react-table"
-import { Wifi, WifiOff, ChevronRight, ChevronDown } from "lucide-react"
+import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock } from "lucide-react"
 
-// Force Place Button Component
-// Currently places the current order, but designed for future multi-order placement functionality
-function ForcePlaceButton({ symbol, onExecute }: { symbol: string; onExecute: () => void }) {
+// Reusable Icon Tooltip Component
+interface IconTooltipProps {
+  icon: React.ReactNode
+  title: string
+  content: React.ReactNode
+  isVisible: boolean
+  onMouseEnter: () => void
+  onMouseLeave: () => void
+}
+
+function IconTooltip({ icon, title, content, isVisible, onMouseEnter, onMouseLeave }: IconTooltipProps) {
+  return (
+    <div 
+      className="relative"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      {icon}
+      {isVisible && (
+        <div className="absolute right-0 top-6 z-50 bg-popover border border-border rounded-md shadow-lg p-2 min-w-[200px]">
+          <p className="text-xs font-semibold text-foreground mb-1">{title}</p>
+          <div className="text-xs text-muted-foreground space-y-0">
+            {content}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Force Fill Button Component with Two-Step Confirmation
+// Shows for ALL pending orders (not just current)
+// First click: Shows checkbox + X button
+// Checkbox click: Confirms and executes force fill
+// X click: Cancels
+function ForceFillButton({ 
+  symbol, 
+  orderIndex, 
+  onExecute,
+  isConfirming,
+  onShowConfirm,
+  onHideConfirm
+}: { 
+  symbol: string
+  orderIndex: number
+  onExecute: () => void
+  isConfirming: boolean
+  onShowConfirm: () => void
+  onHideConfirm: () => void
+}) {
   const [loading, setLoading] = useState(false)
   const apiPort = process.env.NEXT_PUBLIC_API_PORT || '8080'
-  const apiBaseUrl = `http://localhost:${apiPort}`
+  const apiHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+  const apiBaseUrl = `http://${apiHost}:${apiPort}`
 
-  const handleForcePlace = async () => {
-    if (!confirm(`Force place current order for ${symbol}? This will place the order and advance to the next one.`)) {
-      return
-    }
-
+  const handleForceFill = async (e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent event from bubbling up to table row
     setLoading(true)
     try {
-      const response = await fetch(`${apiBaseUrl}/api/simulate-fill`, {
+      const response = await fetch(`${apiBaseUrl}/api/force-fill-order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ symbol }),
+        body: JSON.stringify({ symbol, order_index: orderIndex }),
       })
 
       const data = await response.json()
 
       if (response.ok && data.success) {
-        alert(`✅ Order placed!\n${data.message}\n${data.next_order_placed ? `✅ Next order placed (Order ${data.next_order})` : data.error ? `⚠️ ${data.error}` : ''}`)
-        // Refresh the data
-        onExecute()
+        // Small delay to show success state before refreshing
+        setTimeout(() => {
+          onExecute()
+          onHideConfirm()
+        }, 300)
       } else {
         alert(`❌ Error: ${data.error || 'Unknown error'}`)
+        onHideConfirm()
+        setLoading(false)
       }
     } catch (error) {
-      console.error('Error force placing:', error)
+      console.error('Error force filling:', error)
       alert(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
+      onHideConfirm()
       setLoading(false)
     }
   }
 
+  const handleCancel = (e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent event from bubbling up to table row
+    onHideConfirm()
+  }
+
+  const handleShowConfirm = (e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent event from bubbling up to table row
+    onShowConfirm()
+  }
+
+  // If showing confirmation UI
+  if (isConfirming) {
+    return (
+      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={handleForceFill}
+          disabled={loading}
+          className="h-6 w-6 flex items-center justify-center rounded border border-primary/30 bg-primary/10 hover:bg-primary/20 transition-colors disabled:opacity-50"
+          title="Confirm force fill"
+        >
+          {loading ? (
+            <div className="h-3 w-3 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+          ) : (
+            <Check className="h-3 w-3 text-primary" />
+          )}
+        </button>
+        <button
+          onClick={handleCancel}
+          disabled={loading}
+          className="h-6 w-6 flex items-center justify-center rounded border border-muted hover:bg-muted transition-colors disabled:opacity-50"
+          title="Cancel"
+        >
+          <X className="h-3 w-3 text-muted-foreground" />
+        </button>
+      </div>
+    )
+  }
+
+  // Default button state
   return (
     <Button
       variant="outline"
       size="sm"
-      onClick={handleForcePlace}
+      onClick={handleShowConfirm}
       disabled={loading}
       className="h-7 text-xs"
     >
-      {loading ? "Placing..." : "Force Place"}
+      Force Fill
     </Button>
   )
 }
@@ -92,6 +181,7 @@ interface AccountInfo {
   cash: number
   portfolio_value: number
   equity: number
+  is_paper?: boolean
 }
 
 interface Prices {
@@ -105,104 +195,87 @@ interface MarketStatus {
 }
 
 export default function OrdersPage() {
-  const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([])
-  const [gttOrders, setGttOrders] = useState<GTTOrder[]>([])
-  const [account, setAccount] = useState<AccountInfo | null>(null)
-  const [prices, setPrices] = useState<Prices>({})
-  const [marketStatus, setMarketStatus] = useState<MarketStatus | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [loadingStep, setLoadingStep] = useState<string>("")
-  const [loadingStatus, setLoadingStatus] = useState<{
-    is_loading: boolean
-    current_step: string
-    progress: number
-    total: number
-    current_symbol: string
-    message: string
-    loaded_symbols?: string[]
-  } | null>(null)
+  // Get API base URL
+  const apiPort = process.env.NEXT_PUBLIC_API_PORT || '8080'
+  const apiHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+  const apiBaseUrl = `http://${apiHost}:${apiPort}`
+  
+  // SWR hooks for data fetching - automatic polling, no full page refresh
+  const { data: ordersData, error: ordersError, isLoading: ordersLoading } = useSWR(
+    `${apiBaseUrl}/api/orders`,
+    { refreshInterval: 5000, revalidateOnFocus: false }
+  )
+  
+  const { data: accountData, error: accountError, isLoading: accountLoading } = useSWR(
+    `${apiBaseUrl}/api/account`,
+    { refreshInterval: 5000, revalidateOnFocus: false }
+  )
+  
+  const { data: pricesData, error: pricesError, isLoading: pricesLoading } = useSWR(
+    `${apiBaseUrl}/api/prices`,
+    { refreshInterval: 5000, revalidateOnFocus: false }
+  )
+  
+  const { data: loadingStatusData, isLoading: statusLoading } = useSWR(
+    `${apiBaseUrl}/api/status`,
+    { refreshInterval: 500, revalidateOnFocus: false } // Poll status more frequently
+  )
+  
+  // Extract data from SWR responses
+  const activeOrders = ordersData?.active_orders || []
+  const gttOrders = ordersData?.gtt_orders || []
+  const account = accountData || null
+  const prices = pricesData?.prices || {}
+  const marketStatus = pricesData?.market_status || null
+  const loadingStatus = loadingStatusData || null
+  
+  // Refresh function for manual refresh (used by buttons)
+  const refreshData = () => {
+    mutate(`${apiBaseUrl}/api/orders`)
+    mutate(`${apiBaseUrl}/api/account`)
+    mutate(`${apiBaseUrl}/api/prices`)
+  }
+  
+  // Determine loading state - show loading if initial load OR backend is processing
+  const isLoading = (ordersLoading && activeOrders.length === 0) || loadingStatus?.is_loading
+  const isInitialLoad = ordersLoading && activeOrders.length === 0 && !ordersData
+  
+  // Determine online status from SWR errors
+  const isOnline = !ordersError && !accountError && !pricesError
+  
+  // Track last sync time
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
-  const [isOnline, setIsOnline] = useState(true)
-
-  const fetchLoadingStatus = async () => {
-    try {
-      const apiPort = process.env.NEXT_PUBLIC_API_PORT || '8080'
-      const apiBaseUrl = `http://localhost:${apiPort}`
-      const statusRes = await fetch(`${apiBaseUrl}/api/status`)
-      if (statusRes.ok) {
-        const statusData = await statusRes.json()
-        setLoadingStatus(statusData)
-        if (statusData.is_loading && statusData.message) {
-          setLoadingStep(statusData.message)
-        }
-      }
-    } catch (error) {
-      // Ignore errors - status endpoint might not be available
-    }
-  }
-
-  const fetchData = async () => {
-    try {
-      setIsOnline(true)
-      
-      // First check loading status
-      await fetchLoadingStatus()
-      
-      setLoadingStep("Connecting to server...")
-      const apiPort = process.env.NEXT_PUBLIC_API_PORT || '8080'
-      const apiBaseUrl = `http://localhost:${apiPort}`
-      
-      // Poll loading status while fetching orders
-      const statusInterval = setInterval(fetchLoadingStatus, 500)
-      
-      setLoadingStep("Fetching orders...")
-      const ordersRes = await fetch(`${apiBaseUrl}/api/orders`)
-      
-      clearInterval(statusInterval)
-      await fetchLoadingStatus() // Get final status
-      
-      setLoadingStep("Fetching account information...")
-      const accountRes = await fetch(`${apiBaseUrl}/api/account`)
-      
-      setLoadingStep("Fetching market prices...")
-      const pricesRes = await fetch(`${apiBaseUrl}/api/prices`)
-
-      if (ordersRes.ok) {
-        const ordersData = await ordersRes.json()
-        setActiveOrders(ordersData.active_orders || [])
-        setGttOrders(ordersData.gtt_orders || [])
-      }
-
-      if (accountRes.ok) {
-        const accountData = await accountRes.json()
-        setAccount(accountData)
-      }
-
-      if (pricesRes.ok) {
-        const pricesData = await pricesRes.json()
-        setPrices(pricesData.prices || {})
-        setMarketStatus(pricesData.market_status || null)
-      }
-
-      // Update last sync time on successful fetch
-      setLastSyncTime(new Date())
-      setLoadingStep("")
-      setLoadingStatus(null)
-    } catch (error) {
-      console.error("Error fetching data:", error)
-      setIsOnline(false)
-      setLoadingStep(`Error: ${error instanceof Error ? error.message : 'Connection failed'}`)
-      setLoadingStatus(null)
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  
+  // Update last sync time when data changes
   useEffect(() => {
-    fetchData()
-    const interval = setInterval(fetchData, 5000) // Refresh every 5 seconds
-    return () => clearInterval(interval)
-  }, [])
+    if (ordersData || accountData || pricesData) {
+      setLastSyncTime(new Date())
+    }
+  }, [ordersData, accountData, pricesData])
+  
+  // Track which buttons are showing confirmation UI (persists across re-renders)
+  const [confirmingButtons, setConfirmingButtons] = useState<Set<string>>(new Set())
+  
+  // Tooltip state for status icons
+  const [tooltipState, setTooltipState] = useState<{
+    tradingMode: boolean
+    sync: boolean
+    warning: boolean
+  }>({ tradingMode: false, sync: false, warning: false })
+  
+  const addConfirmingButton = (key: string) => {
+    setConfirmingButtons(prev => new Set(prev).add(key))
+  }
+  
+  const removeConfirmingButton = (key: string) => {
+    setConfirmingButtons(prev => {
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }
+  
+  const isConfirming = (key: string) => confirmingButtons.has(key)
 
   // Update sync time display every second for real-time feel
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -240,6 +313,109 @@ export default function OrdersPage() {
     const hours = Math.floor(diff / 3600)
     const minutes = Math.floor((diff % 3600) / 60)
     return `${hours}h ${minutes}m ago`
+  }
+
+  // Format date/time in a human-readable way
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    
+    // Relative time for recent dates
+    if (diffMins < 1) return "Just now"
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays === 1) return "Yesterday"
+    if (diffDays < 7) return `${diffDays}d ago`
+    
+    // For older dates, show a cleaner absolute format
+    const month = date.toLocaleDateString('en-US', { month: 'short' })
+    const day = date.getDate()
+    const year = date.getFullYear()
+    const isCurrentYear = year === now.getFullYear()
+    const time = date.toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    })
+    
+    if (isCurrentYear) {
+      return `${month} ${day}, ${time}`
+    } else {
+      return `${month} ${day}, ${year} ${time}`
+    }
+  }
+
+  // Get full date/time for tooltip
+  const getFullDateTime = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    })
+  }
+
+  // Format market open/close time in a readable way using Intl APIs
+  const formatMarketTime = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    
+    // Normalize to midnight for day comparison
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const marketDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    
+    // Format date components
+    const dateFormatter = new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      weekday: 'short'
+    })
+    const dateParts = dateFormatter.formatToParts(date)
+    const month = dateParts.find(p => p.type === 'month')?.value || ''
+    const day = dateParts.find(p => p.type === 'day')?.value || ''
+    const weekday = dateParts.find(p => p.type === 'weekday')?.value || ''
+    
+    // Format time with timezone
+    const timeFormatter = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZoneName: 'short'
+    })
+    const timeParts = timeFormatter.formatToParts(date)
+    const hour = timeParts.find(p => p.type === 'hour')?.value || ''
+    const minute = timeParts.find(p => p.type === 'minute')?.value || ''
+    const dayPeriod = timeParts.find(p => p.type === 'dayPeriod')?.value || ''
+    const timeZone = timeParts.find(p => p.type === 'timeZoneName')?.value || ''
+    
+    const time = `${hour}:${minute} ${dayPeriod} ${timeZone}`
+    
+    // Check if it's today
+    const isToday = marketDay.getTime() === today.getTime()
+    // Check if it's tomorrow (and tomorrow is a weekday)
+    const isTomorrow = marketDay.getTime() === tomorrow.getTime()
+    const tomorrowDayOfWeek = tomorrow.getDay()
+    const isTomorrowWeekday = tomorrowDayOfWeek >= 1 && tomorrowDayOfWeek <= 5
+    
+    // Build the formatted string
+    if (isToday) {
+      return `Today, ${month} ${day} (${weekday}), ${time}`
+    } else if (isTomorrow && isTomorrowWeekday) {
+      return `Tomorrow, ${month} ${day} (${weekday}), ${time}`
+    } else {
+      // For future dates, show full date with weekday
+      return `${weekday}, ${month} ${day}, ${time}`
+    }
   }
 
   const getStatusBadge = (status: string, isCurrent?: boolean) => {
@@ -366,9 +542,22 @@ export default function OrdersPage() {
       header: "Actions",
       cell: ({ row }) => {
         const order = row.original
-        // Show Force Place button for current order (even if pending - will place it first)
-        if (order.is_current) {
-          return <ForcePlaceButton symbol={order.symbol} onExecute={onRefresh} />
+        // Show Force Fill button for ALL pending orders (not just current)
+        const statusLower = order.status.toLowerCase()
+        const isPending = statusLower === "pending" && !order.order_id
+        
+        if (isPending) {
+          const buttonKey = `${order.symbol}-${order.order_index}`
+          return (
+            <ForceFillButton 
+              symbol={order.symbol} 
+              orderIndex={order.order_index - 1} 
+              onExecute={onRefresh}
+              isConfirming={isConfirming(buttonKey)}
+              onShowConfirm={() => addConfirmingButton(buttonKey)}
+              onHideConfirm={() => removeConfirmingButton(buttonKey)}
+            />
+          )
         }
         return <span className="text-muted-foreground text-xs">—</span>
       },
@@ -377,13 +566,13 @@ export default function OrdersPage() {
 
   // Create a set of GTT order IDs for quick lookup (to show which orders came from GTT)
   const gttOrderIds = useMemo(() => {
-    return new Set(gttOrders.filter(o => o.order_id).map(o => o.order_id))
+    return new Set(gttOrders.filter((o: GTTOrder) => o.order_id).map((o: GTTOrder) => o.order_id))
   }, [gttOrders])
 
   // Group GTT orders by symbol
   const gttBySymbol: Record<string, GTTOrder[]> = useMemo(() => {
     const grouped: Record<string, GTTOrder[]> = {}
-    gttOrders.forEach((order) => {
+    gttOrders.forEach((order: GTTOrder) => {
       if (!grouped[order.symbol]) {
         grouped[order.symbol] = []
       }
@@ -448,11 +637,17 @@ export default function OrdersPage() {
     {
       accessorKey: "created_at",
       header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Created" />,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {new Date(row.original.created_at).toLocaleString()}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const dateStr = row.original.created_at
+        return (
+          <span 
+            className="text-sm text-foreground font-medium"
+            title={getFullDateTime(dateStr)}
+          >
+            {formatDateTime(dateStr)}
+          </span>
+        )
+      },
     },
     {
       id: "gtt",
@@ -472,7 +667,7 @@ export default function OrdersPage() {
             size="sm"
             className="h-8 w-8 p-0"
             onClick={(e) => {
-              e.stopPropagation()
+              e.stopPropagation() // Prevent row click from triggering
               row.toggleExpanded()
             }}
           >
@@ -506,53 +701,142 @@ export default function OrdersPage() {
   const orderCategories = useMemo(() => categorizeOrders(activeOrders), [activeOrders])
 
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen bg-background p-2 sm:p-4">
       <div className="max-w-7xl mx-auto space-y-4">
-        {/* Header - Compact */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            {/* Logo - Smaller */}
-            <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-card border border-primary/30 flex-shrink-0 flex items-center justify-center">
-              <img
-                src="/alpaca-logo.png"
-                alt="Alpaca Logo"
-                className="w-full h-full object-cover scale-150"
-                style={{ imageRendering: 'crisp-edges' }}
-              />
+        {/* Header - Responsive Layout */}
+        <div className="flex flex-col gap-3">
+          {/* Top row: Title and Status */}
+          <div className="flex items-start justify-between gap-4">
+            {/* Left: Logo and Title */}
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {/* Logo - Smaller */}
+              <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-card border border-primary/30 flex-shrink-0 flex items-center justify-center">
+                <img
+                  src="/alpaca-logo.png"
+                  alt="Alpaca Logo"
+                  className="w-full h-full object-cover scale-150"
+                  style={{ imageRendering: 'crisp-edges' }}
+                />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-foreground">
+                  Alpaca Order Manager
+                </h1>
+                <p className="text-xs text-muted-foreground hidden sm:block">Monitor and manage your conditional orders</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-foreground">
-                Alpaca Order Manager
-              </h1>
-              <p className="text-xs text-muted-foreground">Monitor and manage your conditional orders</p>
-            </div>
-          </div>
-          {/* Right side - Stacked vertically for less clutter */}
-          <div className="flex flex-col items-end gap-2">
-            {/* Minimal Sync Status - Icon only with timestamp */}
-            <div className="flex items-center gap-2">
+            
+            {/* Right: Compact Status Bar - Top Right Corner */}
+            <div className="flex items-center gap-3 flex-shrink-0">
               {isOnline ? (
-                <div className="flex flex-col items-end gap-0.5">
-                  <div className="relative flex items-center gap-1.5">
-                    <Wifi className="h-4 w-4 text-green-500" />
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
+                <div className="flex flex-col items-end gap-1.5">
+                  {/* Top row: Icons and loading indicator */}
+                  <div className="flex items-center gap-2">
+                    {/* Paper Trading vs Live Trading Icon */}
+                    {account && (
+                      <IconTooltip
+                        icon={
+                          account.is_paper ? (
+                            <TestTube className="h-4 w-4 text-yellow-500 cursor-help" />
+                          ) : (
+                            <ChartCandlestick className="h-4 w-4 text-red-500 cursor-help" />
+                          )
+                        }
+                        title="Trading Mode"
+                        content={
+                          account.is_paper ? (
+                            <>🧪 <strong>Paper Trading</strong> - Simulated trading with virtual funds</>
+                          ) : (
+                            <>⚡ <strong>Live Trading</strong> - Real money transactions</>
+                          )
+                        }
+                        isVisible={tooltipState.tradingMode}
+                        onMouseEnter={() => setTooltipState(prev => ({ ...prev, tradingMode: true }))}
+                        onMouseLeave={() => setTooltipState(prev => ({ ...prev, tradingMode: false }))}
+                      />
+                    )}
+                    
+                    {/* Sync Status Icon */}
+                    <IconTooltip
+                      icon={
+                        loadingStatus?.is_loading ? (
+                          <RefreshCw className="h-4 w-4 text-primary animate-spin cursor-help" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-green-500 cursor-help" />
+                        )
+                      }
+                      title="Sync Status"
+                      content={
+                        <>
+                          <span>
+                            {loadingStatus?.is_loading 
+                              ? `Syncing: ${loadingStatus.message || "Loading orders..."}`
+                              : "Data is synchronized"}
+                          </span>
+                          <span className="block mt-1">
+                            Last sync: {formatLastSyncDetailed()}
+                          </span>
+                        </>
+                      }
+                      isVisible={tooltipState.sync}
+                      onMouseEnter={() => setTooltipState(prev => ({ ...prev, sync: true }))}
+                      onMouseLeave={() => setTooltipState(prev => ({ ...prev, sync: false }))}
+                    />
+                    
+                    {/* Market Status Warning */}
+                    {marketStatus && marketStatus.is_open === false && (
+                      <IconTooltip
+                        icon={<Clock className="h-4 w-4 text-yellow-500/70 cursor-help" />}
+                        title="Market Status"
+                        content={
+                          <>
+                            <span>Markets are currently closed. Prices may be stale.</span>
+                            {marketStatus.next_open && (
+                              <span className="block mt-1 font-medium text-foreground">
+                                Opens: <span className="text-primary">{formatMarketTime(marketStatus.next_open)}</span>
+                              </span>
+                            )}
+                          </>
+                        }
+                        isVisible={tooltipState.warning}
+                        onMouseEnter={() => setTooltipState(prev => ({ ...prev, warning: true }))}
+                        onMouseLeave={() => setTooltipState(prev => ({ ...prev, warning: false }))}
+                      />
+                    )}
+                  </div>
+                  
+                  {/* Loading Progress Bar - Compact and Smooth */}
+                  {loadingStatus?.is_loading && (
+                    <div className="flex items-center gap-2 w-48">
+                      <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary transition-all duration-500 ease-out"
+                          style={{ 
+                            width: loadingStatus.total > 0 
+                              ? `${Math.min(100, (loadingStatus.progress / loadingStatus.total) * 100)}%` 
+                              : '50%'
+                          }}
+                        />
+                      </div>
+                      {loadingStatus.total > 0 && (
+                        <span className="text-[9px] text-muted-foreground tabular-nums">
+                          {loadingStatus.progress}/{loadingStatus.total}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Bottom row: Last sync time */}
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="text-[9px] text-muted-foreground leading-tight">
+                      {formatLastSyncDetailed()}
                     </span>
                     {marketStatus && marketStatus.is_open === false && (
-                      <span className="text-[8px] text-yellow-500/70 ml-0.5" title="Markets closed - prices may be stale">
-                        ⚠
+                      <span className="text-[8px] text-muted-foreground/70 leading-tight">
+                        Closed
                       </span>
                     )}
                   </div>
-                  <span className="text-[9px] text-muted-foreground leading-tight">
-                    {formatLastSyncDetailed()}
-                  </span>
-                  {marketStatus && marketStatus.is_open === false && marketStatus.next_open && (
-                    <span className="text-[8px] text-muted-foreground/70 leading-tight" title={`Markets reopen: ${new Date(marketStatus.next_open).toLocaleString()}`}>
-                      Closed
-                    </span>
-                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-end gap-0.5">
@@ -563,29 +847,31 @@ export default function OrdersPage() {
                 </div>
               )}
             </div>
-            {/* Account Summary - Compact */}
-            {account && (
-              <Card className="w-48">
-                <CardHeader className="pb-1 pt-1.5 px-2.5">
-                  <CardTitle className="text-[10px] font-medium">Account</CardTitle>
-                </CardHeader>
-                <CardContent className="py-1 px-2.5 space-y-0.5">
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-muted-foreground">Buying Power</span>
-                    <span className="font-medium">{formatCurrency(account.buying_power)}</span>
-                  </div>
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-muted-foreground">Cash</span>
-                    <span className="font-medium">{formatCurrency(account.cash)}</span>
-                  </div>
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-muted-foreground">Equity</span>
-                    <span className="font-medium">{formatCurrency(account.equity)}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
+          
+          {/* Bottom row: Account Summary - After Status */}
+          {account && (
+            <Card className="w-full">
+              <CardContent className="py-2 px-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground font-medium">Buying Power</span>
+                    <span className="text-sm font-semibold text-foreground">{formatCurrency(account.buying_power)}</span>
+                  </div>
+                  <div className="hidden sm:block h-4 w-px bg-border"></div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground font-medium">Cash</span>
+                    <span className="text-sm font-semibold text-foreground">{formatCurrency(account.cash)}</span>
+                  </div>
+                  <div className="hidden sm:block h-4 w-px bg-border"></div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground font-medium">Equity</span>
+                    <span className="text-sm font-semibold text-foreground">{formatCurrency(account.equity)}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Tabs */}
@@ -597,7 +883,8 @@ export default function OrdersPage() {
 
           {/* GTT Orders Tab */}
           <TabsContent value="gtt" className="space-y-4">
-            {loading ? (
+            {/* Show loading screen if initial load AND no data exists yet */}
+            {isLoading && gttOrders.length === 0 ? (
               <Card>
                 <CardContent className="py-12">
                   <div className="flex flex-col items-center justify-center gap-4">
@@ -606,11 +893,32 @@ export default function OrdersPage() {
                     </div>
                     <div className="text-center space-y-2">
                       <p className="text-lg font-medium text-foreground">Loading orders...</p>
-                      {loadingStep && (
-                        <p className="text-sm text-muted-foreground animate-pulse">{loadingStep}</p>
+                      {loadingStatus?.is_loading && loadingStatus.message && (
+                        <p className="text-sm text-muted-foreground animate-pulse">{loadingStatus.message}</p>
+                      )}
+                      {loadingStatus && loadingStatus.is_loading && loadingStatus.current_symbol && (
+                        <p className="text-xs text-primary font-medium">
+                          Processing: {loadingStatus.current_symbol}
+                        </p>
+                      )}
+                      {loadingStatus && loadingStatus.total > 0 && (
+                        <div className="flex items-center gap-2 justify-center mt-2">
+                          <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-primary transition-all duration-300"
+                              style={{ width: `${(loadingStatus.progress / loadingStatus.total) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {loadingStatus.progress}/{loadingStatus.total}
+                          </span>
+                        </div>
                       )}
                       {!isOnline && (
-                        <p className="text-sm text-destructive mt-2">⚠️ Server connection failed. Please check if the monitor is running.</p>
+                        <p className="text-sm text-destructive mt-2 flex items-center gap-2">
+                          <TriangleAlert className="h-4 w-4" />
+                          Server connection failed. Please check if the monitor is running.
+                        </p>
                       )}
                     </div>
                   </div>
@@ -632,63 +940,75 @@ export default function OrdersPage() {
                     const status = o.status.toLowerCase()
                     return status === "filled"
                   })
+                  const placedOrders = orders.filter(o => {
+                    const status = o.status.toLowerCase()
+                    // Orders that are placed (have order_id) but not filled
+                    return o.order_id && status !== "filled"
+                  })
                   const pendingOrders = orders.filter(o => {
                     const status = o.status.toLowerCase()
-                    // Internal pending status or Alpaca statuses that mean pending
-                    return (status === "pending" || status === "placed" || 
-                            status === "new" || status === "accepted" || 
-                            status === "pending_new" || status === "pending_replace" ||
-                            status === "accepted_for_bidding" || status === "stopped" ||
-                            status === "suspended" || status === "partially_filled") && !o.is_current
+                    // Orders that are truly pending (no order_id and status is pending)
+                    return !o.order_id && status === "pending"
                   })
                   
-                  const columns = createGTTColumns(currentPrice, fetchData)
+                  // Calculate totals
+                  const totalOrders = orders.length
+                  const placedCount = placedOrders.length + completedOrders.length // Include filled orders in "placed"
+                  const remainingCount = pendingOrders.length
+                  
+                  const columns = createGTTColumns(currentPrice, refreshData)
                   
                   return (
                     <AccordionItem key={symbol} value={symbol} className="border-none">
                       <Card>
-                        <CardHeader>
+                        <CardHeader className="p-3 sm:p-6">
                           <AccordionTrigger className="hover:no-underline">
-                            <div className="flex items-center justify-between w-full pr-4">
-                              <div className="text-left">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-4 gap-3 sm:gap-0">
+                              {/* Left side: Name and description */}
+                              <div className="text-left flex-1 min-w-0">
                                 <CardTitle className="text-xl">{symbol}</CardTitle>
                                 <CardDescription className="mt-1">
-                                  {orders[0]?.company} • {orders.length} orders in sequence
-                                  {completedOrders.length > 0 && (
-                                    <span className="ml-2 text-green-400">
-                                      • {completedOrders.length} completed
-                                    </span>
-                                  )}
-                                  {pendingOrders.length > 0 && (
-                                    <span className="ml-2 text-primary">
-                                      • {pendingOrders.length} pending
-                                    </span>
-                                  )}
+                                  {orders[0]?.company}
                                 </CardDescription>
                               </div>
-                              <div className="flex items-center gap-3">
-                                {currentPrice && (
-                                  <Badge variant="outline" className="text-sm shrink-0">
-                                    Current: {formatCurrency(currentPrice)}
+                              
+                              {/* Right side: Four cards in a responsive grid */}
+                              <div className="flex flex-col sm:flex-row gap-2 ml-2 sm:ml-4 flex-shrink-0">
+                                {/* Top row: Current Price and Next Limit */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {currentPrice && (
+                                    <Badge variant="outline" className="text-xs shrink-0 px-2 py-1">
+                                      Current: {formatCurrency(currentPrice)}
+                                    </Badge>
+                                  )}
+                                  {(() => {
+                                    const currentOrder = orders.find(o => o.is_current)
+                                    if (currentOrder) {
+                                      return (
+                                        <Badge variant="outline" className="text-xs shrink-0 px-2 py-1">
+                                          Next Limit: {formatCurrency(currentOrder.price)}
+                                        </Badge>
+                                      )
+                                    }
+                                    return null
+                                  })()}
+                                </div>
+                                
+                                {/* Bottom row: Placed count and Remaining count */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline" className="text-xs shrink-0 px-2 py-1 bg-primary/10 text-primary border-primary/30">
+                                    {placedCount} of {totalOrders} placed
                                   </Badge>
-                                )}
-                                {(() => {
-                                  const currentOrder = orders.find(o => o.is_current)
-                                  if (currentOrder) {
-                                    return (
-                                      <Badge variant="outline" className="text-sm shrink-0">
-                                        Next Limit: {formatCurrency(currentOrder.price)}
-                                      </Badge>
-                                    )
-                                  }
-                                  return null
-                                })()}
+                                  <Badge variant="outline" className="text-xs shrink-0 px-2 py-1 bg-muted/50 text-muted-foreground">
+                                    {remainingCount} remaining
+                                  </Badge>
+                                </div>
                               </div>
                             </div>
                           </AccordionTrigger>
                         </CardHeader>
                         <AccordionContent>
-                          <CardContent>
+                          <CardContent className="p-3 sm:p-6">
                             <DataTable
                               columns={columns}
                               data={orders}
@@ -707,8 +1027,8 @@ export default function OrdersPage() {
           <TabsContent value="orders" className="space-y-6">
             {/* Active Orders Section */}
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                   Active
                   {orderCategories.active.length > 0 && (
                     <Badge variant="secondary" className="ml-2">
@@ -716,16 +1036,19 @@ export default function OrdersPage() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription>Orders currently placed and live (buying power locked)</CardDescription>
+                <CardDescription className="text-xs sm:text-sm">Orders currently placed and live (buying power locked)</CardDescription>
               </CardHeader>
-              <CardContent>
-                {loading ? (
+              <CardContent className="p-3 sm:p-6">
+                {/* Show loading screen if:
+                    1. Initial load AND no data exists yet, OR
+                    2. Backend is still loading (from /api/status) - show even if we have some orders */}
+                {isLoading ? (
                   <div className="py-8 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
                       <div className="space-y-1">
                         <p className="text-sm text-muted-foreground">
-                          {loadingStep || "Loading..."}
+                          {loadingStatus?.message || "Loading orders..."}
                         </p>
                         {loadingStatus && loadingStatus.is_loading && (
                           <div className="space-y-1">
@@ -770,11 +1093,15 @@ export default function OrdersPage() {
                     }}
                     renderSubComponent={(row) => {
                       const symbol = row.original.symbol
+                      const orderId = row.original.id // The Alpaca order ID
                       const symbolGTTOrders = gttBySymbol[symbol] || []
                       
                       if (symbolGTTOrders.length === 0) {
                         return null
                       }
+                      
+                      // Find the matching GTT order by order_id
+                      const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
                       
                       return (
                         <div className="space-y-2">
@@ -782,7 +1109,7 @@ export default function OrdersPage() {
                             <h4 className="text-sm font-semibold">GTT Orders for {symbol}</h4>
                             <Badge variant="secondary">{symbolGTTOrders.length}</Badge>
                           </div>
-                          <div className="overflow-x-auto">
+                          <div className="overflow-x-auto -mx-4 px-4">
                             <Table>
                               <TableHeader>
                                 <TableRow>
@@ -794,26 +1121,34 @@ export default function OrdersPage() {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {symbolGTTOrders.map((gttOrder) => (
-                                  <TableRow key={`${gttOrder.symbol}-${gttOrder.order_index}`}>
-                                    <TableCell className="font-medium">
-                                      #{gttOrder.order_index}
-                                      {gttOrder.is_current && (
-                                        <Badge variant="outline" className="ml-2 text-xs">
-                                          Current
-                                        </Badge>
-                                      )}
-                                    </TableCell>
-                                    <TableCell>{gttOrder.amount}</TableCell>
-                                    <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
-                                    <TableCell>
-                                      {getStatusBadge(gttOrder.status, gttOrder.is_current)}
-                                    </TableCell>
-                                    <TableCell className="font-mono text-xs text-muted-foreground">
-                                      {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
+                                {symbolGTTOrders.map((gttOrder) => {
+                                  // Highlight if this GTT order matches the clicked order
+                                  const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
+                                  
+                                  return (
+                                    <TableRow 
+                                      key={`${gttOrder.symbol}-${gttOrder.order_index}`}
+                                      className={isMatchingOrder ? "bg-primary/20 hover:bg-primary/25" : ""}
+                                    >
+                                      <TableCell className="font-medium">
+                                        #{gttOrder.order_index}
+                                        {gttOrder.is_current && (
+                                          <Badge variant="outline" className="ml-2 text-xs">
+                                            Current
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>{gttOrder.amount}</TableCell>
+                                      <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
+                                      <TableCell>
+                                        {getStatusBadge(gttOrder.status, gttOrder.is_current)}
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs text-muted-foreground">
+                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  )
+                                })}
                               </TableBody>
                             </Table>
                           </div>
@@ -827,8 +1162,8 @@ export default function OrdersPage() {
 
             {/* Completed Orders Section */}
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                   Completed
                   {orderCategories.completed.length > 0 && (
                     <Badge variant="default" className="ml-2">
@@ -836,16 +1171,19 @@ export default function OrdersPage() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription>Orders that have been filled (executed)</CardDescription>
+                <CardDescription className="text-xs sm:text-sm">Orders that have been filled (executed)</CardDescription>
               </CardHeader>
-              <CardContent>
-                {loading ? (
+              <CardContent className="p-3 sm:p-6">
+                {/* Show loading screen if:
+                    1. Initial load AND no data exists yet, OR
+                    2. Backend is still loading (from /api/status) - show even if we have some orders */}
+                {isLoading ? (
                   <div className="py-8 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
                       <div className="space-y-1">
                         <p className="text-sm text-muted-foreground">
-                          {loadingStep || "Loading..."}
+                          {loadingStatus?.message || "Loading orders..."}
                         </p>
                         {loadingStatus && loadingStatus.is_loading && (
                           <div className="space-y-1">
@@ -890,11 +1228,15 @@ export default function OrdersPage() {
                     }}
                     renderSubComponent={(row) => {
                       const symbol = row.original.symbol
+                      const orderId = row.original.id // The Alpaca order ID
                       const symbolGTTOrders = gttBySymbol[symbol] || []
                       
                       if (symbolGTTOrders.length === 0) {
                         return null
                       }
+                      
+                      // Find the matching GTT order by order_id
+                      const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
                       
                       return (
                         <div className="space-y-2">
@@ -902,7 +1244,7 @@ export default function OrdersPage() {
                             <h4 className="text-sm font-semibold">GTT Orders for {symbol}</h4>
                             <Badge variant="secondary">{symbolGTTOrders.length}</Badge>
                           </div>
-                          <div className="overflow-x-auto">
+                          <div className="overflow-x-auto -mx-4 px-4">
                             <Table>
                               <TableHeader>
                                 <TableRow>
@@ -914,26 +1256,34 @@ export default function OrdersPage() {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {symbolGTTOrders.map((gttOrder) => (
-                                  <TableRow key={`${gttOrder.symbol}-${gttOrder.order_index}`}>
-                                    <TableCell className="font-medium">
-                                      #{gttOrder.order_index}
-                                      {gttOrder.is_current && (
-                                        <Badge variant="outline" className="ml-2 text-xs">
-                                          Current
-                                        </Badge>
-                                      )}
-                                    </TableCell>
-                                    <TableCell>{gttOrder.amount}</TableCell>
-                                    <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
-                                    <TableCell>
-                                      {getStatusBadge(gttOrder.status, gttOrder.is_current)}
-                                    </TableCell>
-                                    <TableCell className="font-mono text-xs text-muted-foreground">
-                                      {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
+                                {symbolGTTOrders.map((gttOrder) => {
+                                  // Highlight if this GTT order matches the clicked order
+                                  const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
+                                  
+                                  return (
+                                    <TableRow 
+                                      key={`${gttOrder.symbol}-${gttOrder.order_index}`}
+                                      className={isMatchingOrder ? "bg-primary/20 hover:bg-primary/25" : ""}
+                                    >
+                                      <TableCell className="font-medium">
+                                        #{gttOrder.order_index}
+                                        {gttOrder.is_current && (
+                                          <Badge variant="outline" className="ml-2 text-xs">
+                                            Current
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>{gttOrder.amount}</TableCell>
+                                      <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
+                                      <TableCell>
+                                        {getStatusBadge(gttOrder.status, gttOrder.is_current)}
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs text-muted-foreground">
+                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  )
+                                })}
                               </TableBody>
                             </Table>
                           </div>
@@ -947,8 +1297,8 @@ export default function OrdersPage() {
 
             {/* Cancelled Orders Section */}
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
                   Cancelled
                   {orderCategories.cancelled.length > 0 && (
                     <Badge variant="destructive" className="ml-2">
@@ -956,16 +1306,19 @@ export default function OrdersPage() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription>Orders that were cancelled or expired</CardDescription>
+                <CardDescription className="text-xs sm:text-sm">Orders that were cancelled or expired</CardDescription>
               </CardHeader>
-              <CardContent>
-                {loading ? (
+              <CardContent className="p-3 sm:p-6">
+                {/* Show loading screen if:
+                    1. Initial load AND no data exists yet, OR
+                    2. Backend is still loading (from /api/status) - show even if we have some orders */}
+                {isLoading ? (
                   <div className="py-8 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
                       <div className="space-y-1">
                         <p className="text-sm text-muted-foreground">
-                          {loadingStep || "Loading..."}
+                          {loadingStatus?.message || "Loading orders..."}
                         </p>
                         {loadingStatus && loadingStatus.is_loading && (
                           <div className="space-y-1">
@@ -1010,11 +1363,15 @@ export default function OrdersPage() {
                     }}
                     renderSubComponent={(row) => {
                       const symbol = row.original.symbol
+                      const orderId = row.original.id // The Alpaca order ID
                       const symbolGTTOrders = gttBySymbol[symbol] || []
                       
                       if (symbolGTTOrders.length === 0) {
                         return null
                       }
+                      
+                      // Find the matching GTT order by order_id
+                      const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
                       
                       return (
                         <div className="space-y-2">
@@ -1022,7 +1379,7 @@ export default function OrdersPage() {
                             <h4 className="text-sm font-semibold">GTT Orders for {symbol}</h4>
                             <Badge variant="secondary">{symbolGTTOrders.length}</Badge>
                           </div>
-                          <div className="overflow-x-auto">
+                          <div className="overflow-x-auto -mx-4 px-4">
                             <Table>
                               <TableHeader>
                                 <TableRow>
@@ -1034,26 +1391,34 @@ export default function OrdersPage() {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {symbolGTTOrders.map((gttOrder) => (
-                                  <TableRow key={`${gttOrder.symbol}-${gttOrder.order_index}`}>
-                                    <TableCell className="font-medium">
-                                      #{gttOrder.order_index}
-                                      {gttOrder.is_current && (
-                                        <Badge variant="outline" className="ml-2 text-xs">
-                                          Current
-                                        </Badge>
-                                      )}
-                                    </TableCell>
-                                    <TableCell>{gttOrder.amount}</TableCell>
-                                    <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
-                                    <TableCell>
-                                      {getStatusBadge(gttOrder.status, gttOrder.is_current)}
-                                    </TableCell>
-                                    <TableCell className="font-mono text-xs text-muted-foreground">
-                                      {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
+                                {symbolGTTOrders.map((gttOrder) => {
+                                  // Highlight if this GTT order matches the clicked order
+                                  const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
+                                  
+                                  return (
+                                    <TableRow 
+                                      key={`${gttOrder.symbol}-${gttOrder.order_index}`}
+                                      className={isMatchingOrder ? "bg-primary/20 hover:bg-primary/25" : ""}
+                                    >
+                                      <TableCell className="font-medium">
+                                        #{gttOrder.order_index}
+                                        {gttOrder.is_current && (
+                                          <Badge variant="outline" className="ml-2 text-xs">
+                                            Current
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>{gttOrder.amount}</TableCell>
+                                      <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
+                                      <TableCell>
+                                        {getStatusBadge(gttOrder.status, gttOrder.is_current)}
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs text-muted-foreground">
+                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  )
+                                })}
                               </TableBody>
                             </Table>
                           </div>

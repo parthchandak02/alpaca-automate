@@ -15,6 +15,10 @@ import time
 import asyncio
 import ssl
 import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
@@ -33,6 +37,8 @@ from rich.logging import RichHandler
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
+import requests
+from .notifications import NotificationManager
 
 # Load environment variables
 load_dotenv()
@@ -54,11 +60,20 @@ except Exception:
 # Configure rich console and logging
 console = Console()
 
-# Set up logging with rich handler
+# Set up logging with rich handler and rotating file handler
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 log_dir = os.path.join(project_root, 'logs')
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, 'gtt_orders.log')
+
+# Use RotatingFileHandler to prevent log files from growing too large
+# maxBytes: 2MB per file, backupCount: keep 2 rotated files (total ~6MB max) - minimal retention
+file_handler = RotatingFileHandler(
+    log_file,
+    maxBytes=2 * 1024 * 1024,  # 2MB
+    backupCount=2,  # Keep only 2 backup files (minimal)
+    encoding='utf-8'
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,7 +81,7 @@ logging.basicConfig(
     datefmt='[%X]',
     handlers=[
         RichHandler(console=console, rich_tracebacks=True, show_path=False),
-        logging.FileHandler(log_file, encoding='utf-8')
+        file_handler
     ]
 )
 logger = logging.getLogger(__name__)
@@ -112,8 +127,11 @@ class SymbolLadder:
         if self.current_order_index < len(self.orders) - 1:
             self.current_order_index += 1
             logger.info(f"{self.symbol}: Advanced to order {self.current_order_index + 1}/{len(self.orders)}")
-        else:
+        elif self.current_order_index == len(self.orders) - 1:
+            # Only log completion once when we first reach the end
+            self.current_order_index = len(self.orders)  # Mark as completed
             logger.info(f"{self.symbol}: All orders completed!")
+        # If already completed (current_order_index >= len(orders)), do nothing
 
 
 class CSVFileHandler(FileSystemEventHandler):
@@ -169,13 +187,20 @@ class CSVFileHandler(FileSystemEventHandler):
                 'order_statuses': {i: order.status for i, order in enumerate(ladder.orders) if order.order_id}
             }
         
+        # Create snapshots of CSV files before reloading
+        stocks_csv = os.path.join(self.data_dir, 'gtt-live-stocks-etfs.csv')
+        crypto_csv = os.path.join(self.data_dir, 'gtt-live-crypto.csv')
+        
+        old_snapshots = {}
+        if stocks_csv and os.path.exists(stocks_csv):
+            old_snapshots['gtt-live-stocks-etfs.csv'] = self.manager.notification_manager.get_csv_snapshot(stocks_csv)
+        if crypto_csv and os.path.exists(crypto_csv):
+            old_snapshots['gtt-live-crypto.csv'] = self.manager.notification_manager.get_csv_snapshot(crypto_csv)
+        
         # Clear ladders
         self.manager.ladders.clear()
         
         # Reload from CSV files
-        stocks_csv = os.path.join(self.data_dir, 'gtt-live-stocks-etfs.csv')
-        crypto_csv = os.path.join(self.data_dir, 'gtt-live-crypto.csv')
-        
         if stocks_csv and os.path.exists(stocks_csv):
             self.manager.load_orders_from_csv(stocks_csv)
         
@@ -198,6 +223,25 @@ class CSVFileHandler(FileSystemEventHandler):
         # Sync with Alpaca to get latest order IDs
         self.manager.sync_with_alpaca_orders()
         
+        # Detect CSV changes and send notifications
+        if stocks_csv and os.path.exists(stocks_csv):
+            new_snapshot = self.manager.notification_manager.get_csv_snapshot(stocks_csv)
+            if 'gtt-live-stocks-etfs.csv' in old_snapshots:
+                changes = self.manager.notification_manager.compare_csv_snapshots(
+                    old_snapshots['gtt-live-stocks-etfs.csv'], 
+                    new_snapshot
+                )
+                self.manager.notification_manager.send_csv_change_notification('gtt-live-stocks-etfs.csv', changes)
+        
+        if crypto_csv and os.path.exists(crypto_csv):
+            new_snapshot = self.manager.notification_manager.get_csv_snapshot(crypto_csv)
+            if 'gtt-live-crypto.csv' in old_snapshots:
+                changes = self.manager.notification_manager.compare_csv_snapshots(
+                    old_snapshots['gtt-live-crypto.csv'], 
+                    new_snapshot
+                )
+                self.manager.notification_manager.send_csv_change_notification('gtt-live-crypto.csv', changes)
+        
         total_symbols = len(self.manager.ladders)
         total_orders = sum(len(ladder.orders) for ladder in self.manager.ladders.values())
         console.print(f"[green]✓[/green] Reloaded: [cyan]{total_symbols}[/cyan] symbols, [cyan]{total_orders}[/cyan] orders\n")
@@ -212,6 +256,9 @@ class GTTOrderManager:
         self.stream = StockDataStream(api_key, secret_key)
         
         self.ladders: Dict[str, SymbolLadder] = {}  # symbol -> ladder
+        
+        # Initialize notification manager
+        self.notification_manager = NotificationManager(self)
     
     def _parse_price(self, price_str: str) -> Optional[float]:
         """Parse price string, handling $ and commas"""
@@ -230,7 +277,7 @@ class GTTOrderManager:
         
         # Try to update loading status if api_server is available
         try:
-            from api_server import set_loading_status
+            from .api_server import set_loading_status
             filename = os.path.basename(csv_path)
             set_loading_status(True, f"Loading {filename}", 0, 0, "", f"Reading CSV file: {filename}")
         except ImportError:
@@ -248,7 +295,7 @@ class GTTOrderManager:
                 
                 # Update loading status
                 try:
-                    from api_server import set_loading_status
+                    from .api_server import set_loading_status
                     progress = row_idx + 1
                     set_loading_status(True, f"Loading {os.path.basename(csv_path)}", progress, total_rows, symbol, f"Loading {symbol} ({company})... [{progress}/{total_rows}]")
                 except ImportError:
@@ -299,12 +346,8 @@ class GTTOrderManager:
         total_orders = sum(len(ladder.orders) for ladder in self.ladders.values())
         logger.info(f"Loaded {len(self.ladders)} symbols with {total_orders} total orders")
         
-        # Clear loading status when done
-        try:
-            from api_server import clear_loading_status
-            clear_loading_status()
-        except ImportError:
-            pass
+        # Don't clear loading status here - let it persist until sync_with_alpaca_orders completes
+        # This ensures frontend shows loading state during the entire initialization process
     
     async def _handle_quote(self, quote):
         """Handle incoming quote data from WebSocket (async handler)"""
@@ -367,21 +410,24 @@ class GTTOrderManager:
                     continue
                 
                 ladder = self.ladders[symbol]
-                current_order = ladder.get_current_order()
                 
-                if not current_order:
-                    continue
-                
-                # Match by symbol and limit price
-                if (alpaca_order.limit_price and 
-                    abs(float(alpaca_order.limit_price) - current_order.price) < 0.01):
-                    # Found a match!
-                    if current_order.status == "pending" and not current_order.order_id:
-                        current_order.order_id = alpaca_order.id
-                        current_order.status = "placed"
-                        synced_count += 1
-                        logger.info(f"SYNCED: {symbol} Order {ladder.current_order_index + 1} - "
-                                  f"Found order {alpaca_order.id} in Alpaca (Status: {alpaca_order.status.value})")
+                # Match orders by symbol and limit price across all orders in the ladder
+                for idx, order in enumerate(ladder.orders):
+                    if (alpaca_order.limit_price and 
+                        abs(float(alpaca_order.limit_price) - order.price) < 0.01):
+                        # Found a match!
+                        if order.status == "pending" and not order.order_id:
+                            order.order_id = alpaca_order.id
+                            # Use actual Alpaca status
+                            alpaca_status = alpaca_order.status.value if hasattr(alpaca_order.status, 'value') else str(alpaca_order.status)
+                            order.status = alpaca_status.lower() if alpaca_status else "placed"
+                            synced_count += 1
+                            logger.info(f"SYNCED: {symbol} Order {idx + 1} - "
+                                      f"Found order {alpaca_order.id} in Alpaca (Status: {alpaca_status})")
+            
+            # After syncing, update current_order_index to point to first unplaced order
+            for symbol, ladder in self.ladders.items():
+                self._update_current_order_index(ladder)
             
             if synced_count > 0:
                 logger.info(f"Synced {synced_count} order(s) with Alpaca")
@@ -390,6 +436,187 @@ class GTTOrderManager:
                 
         except Exception as e:
             logger.error(f"Error syncing with Alpaca orders: {e}", exc_info=True)
+    
+    def _update_current_order_index(self, ladder: SymbolLadder):
+        """Update current_order_index to point to the first unplaced order"""
+        # Start from the beginning and find the first order that is not placed/filled
+        original_index = ladder.current_order_index
+        
+        # If already completed, don't do anything
+        if ladder.current_order_index >= len(ladder.orders):
+            return
+        
+        while ladder.current_order_index < len(ladder.orders):
+            current = ladder.orders[ladder.current_order_index]
+            # If current order is filled or already placed (has order_id), advance to next
+            if current.status == "filled" or (current.order_id and current.status not in ["pending"]):
+                # Only advance if we're not already at the end
+                if ladder.current_order_index < len(ladder.orders) - 1:
+                    ladder.advance_to_next_order()
+                else:
+                    # Last order is filled - mark as completed (advance_to_next_order will log it)
+                    ladder.advance_to_next_order()
+                    break
+            else:
+                # Found first unplaced order - this is now the current order
+                break
+        
+        if original_index != ladder.current_order_index and ladder.current_order_index < len(ladder.orders):
+            logger.info(f"{ladder.symbol}: Updated current_order_index from {original_index} to {ladder.current_order_index} "
+                      f"(Order {ladder.current_order_index + 1})")
+    
+    def _send_discord_notification(self, title: str, description: str, color: int = 0x0099ff, fields: List[Dict] = None, footer_text: str = None):
+        """Send a Discord webhook notification with elegant formatting"""
+        webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+        if not webhook_url:
+            return  # Discord notifications disabled
+        
+        try:
+            # Discord requires color as decimal integer
+            # Hex colors like 0x00ff00 are already integers in Python, use directly
+            color_decimal = color
+            
+            embed = {
+                "title": title,
+                "description": description,
+                "color": color_decimal,
+                "timestamp": datetime.utcnow().isoformat(),
+                "fields": fields or [],
+                "author": {
+                    "name": "Alpaca Order Manager",
+                    "icon_url": "https://alpaca.markets/images/meta/alpaca-logo.png"  # Alpaca logo
+                },
+                "footer": {
+                    "text": footer_text or "Alpaca Trading Bot"
+                }
+            }
+            
+            payload = {
+                "username": "Alpaca Order Manager",
+                "embeds": [embed]
+            }
+            
+            response = requests.post(webhook_url, json=payload, timeout=5)
+            response.raise_for_status()
+            logger.debug(f"Discord notification sent: {title}")
+        except Exception as e:
+            logger.warning(f"Failed to send Discord notification: {e}")
+    
+    def _render_email_template(self, title: str, description: str, fields: List[Dict] = None, footer_text: str = None) -> str:
+        """Render HTML email template from file"""
+        try:
+            # Load template file (using module-level project_root)
+            template_path = os.path.join(project_root, 'src', 'templates', 'email_template.html')
+            with open(template_path, 'r', encoding='utf-8') as f:
+                template = f.read()
+            
+            # Clean description (remove markdown formatting)
+            clean_description = description.replace('**', '').replace('`', '')
+            
+            # Build fields table HTML
+            fields_table = ""
+            if fields:
+                fields_table = '<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 20px 0;">'
+                for field in fields:
+                    field_name = field.get('name', '').replace('💰', '').replace('📊', '').replace('🆔', '').replace('📈', '').replace('💵', '').strip()
+                    field_value = field.get('value', '').replace('**', '').replace('`', '')
+                    fields_table += f"""
+                                <tr>
+                                    <td style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                            <tr>
+                                                <td style="padding: 0; font-size: 14px; color: #666666; font-weight: 500; width: 140px;">
+                                                    {field_name}:
+                                                </td>
+                                                <td style="padding: 0; font-size: 14px; color: #1a1a1a; font-weight: 400;">
+                                                    {field_value}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>"""
+                fields_table += '</table>'
+            
+            # Build footer HTML
+            footer_html = ""
+            if footer_text:
+                footer_html = f'<p style="margin: 25px 0 0 0; font-size: 13px; color: #999999; line-height: 1.5; border-top: 1px solid #f0f0f0; padding-top: 20px;">{footer_text}</p>'
+            
+            # Replace template variables
+            html = template.replace('{{title}}', title)
+            html = html.replace('{{description}}', clean_description)
+            html = html.replace('{{fields_table}}', fields_table)
+            html = html.replace('{{footer}}', footer_html)
+            
+            return html
+        except FileNotFoundError:
+            logger.warning(f"Email template not found at {template_path}, using fallback")
+            # Fallback to simple HTML if template file not found
+            return f"<html><body><h1>{title}</h1><p>{description}</p></body></html>"
+        except Exception as e:
+            logger.error(f"Error rendering email template: {e}")
+            # Fallback to simple HTML on error
+            return f"<html><body><h1>{title}</h1><p>{description}</p></body></html>"
+    
+    def _send_email_notification(self, title: str, description: str, fields: List[Dict] = None, footer_text: str = None):
+        """Send an email notification when orders are placed or filled - professional HTML format"""
+        email_enabled = os.getenv('EMAIL_NOTIFICATIONS_ENABLED', 'false').lower() == 'true'
+        if not email_enabled:
+            return  # Email notifications disabled
+        
+        smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        smtp_username = os.getenv('SMTP_USERNAME')
+        smtp_password = os.getenv('SMTP_PASSWORD')  # For Gmail, use App Password
+        email_to = os.getenv('EMAIL_TO')
+        
+        if not all([smtp_username, smtp_password, email_to]):
+            logger.debug("Email notification skipped: Missing email configuration")
+            return
+        
+        try:
+            # Parse multiple recipients (comma-separated)
+            recipients = [email.strip() for email in email_to.split(',') if email.strip()]
+            if not recipients:
+                logger.warning("No valid email recipients found")
+                return
+            
+            # Build plain text version
+            text_lines = [description, ""]
+            if fields:
+                for field in fields:
+                    field_name = field.get('name', '')
+                    field_value = field.get('value', '')
+                    text_lines.append(f"{field_name}: {field_value}")
+                text_lines.append("")
+            if footer_text:
+                text_lines.append(footer_text)
+            text_body = "\n".join(text_lines)
+            
+            # Render HTML template
+            html_body = self._render_email_template(title, description, fields, footer_text)
+            
+            # Create multipart message (HTML + plain text)
+            msg = MIMEMultipart('alternative')
+            msg['From'] = smtp_username
+            msg['To'] = ', '.join(recipients)
+            msg['Subject'] = f"Alpaca Trading: {title}"
+            
+            # Attach both plain text and HTML versions
+            part1 = MIMEText(text_body, 'plain', 'utf-8')
+            part2 = MIMEText(html_body, 'html', 'utf-8')
+            msg.attach(part1)
+            msg.attach(part2)
+            
+            # Send email to all recipients
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                server.starttls()  # Enable TLS encryption
+                server.login(smtp_username, smtp_password)
+                server.send_message(msg, to_addrs=recipients)  # Send to all recipients
+            
+            logger.debug(f"Email notification sent to {len(recipients)} recipient(s): {title}")
+        except Exception as e:
+            logger.warning(f"Failed to send email notification: {e}")
     
     def _check_order_status(self, order_id: str) -> Optional[str]:
         """Check status of an order"""
@@ -406,6 +633,20 @@ class GTTOrderManager:
             return  # Already placed
         
         try:
+            # Find the order index in the ladder
+            order_index = None
+            for idx, o in enumerate(ladder.orders):
+                if o is order:
+                    order_index = idx
+                    break
+            
+            if order_index is None:
+                logger.error(f"Order not found in ladder for {symbol}")
+                return
+            
+            order_num = order_index + 1
+            total_orders = len(ladder.orders)
+            
             # Check account buying power before placing order
             account = self.trading_client.get_account()
             buying_power = float(account.buying_power)
@@ -414,6 +655,32 @@ class GTTOrderManager:
             if order_value > buying_power:
                 logger.warning(f"Insufficient buying power for {symbol}. "
                              f"Required: ${order_value:.2f}, Available: ${buying_power:.2f}")
+                
+                # Send email notification for insufficient buying power
+                self._send_email_notification(
+                    title="⚠️ Insufficient Buying Power",
+                    description=f"**{symbol}** - Order {order_num} could not be placed due to insufficient buying power.",
+                    fields=[
+                        {"name": "💰 Required", "value": f"${order_value:.2f}", "inline": True},
+                        {"name": "💵 Available", "value": f"${buying_power:.2f}", "inline": True},
+                        {"name": "📊 Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
+                        {"name": "📈 Order Details", "value": f"Limit: ${order.price:.2f}, Qty: {order.amount} shares", "inline": False},
+                    ],
+                    footer_text=f"{ladder.company} • Order {order_num}/{total_orders} • Action Required"
+                )
+                
+                # Send Discord notification
+                self._send_discord_notification(
+                    title="⚠️ Insufficient Buying Power",
+                    description=f"**{symbol}** - Order {order_num} could not be placed",
+                    color=0xff9900,  # Orange
+                    fields=[
+                        {"name": "💰 Required", "value": f"${order_value:.2f}", "inline": True},
+                        {"name": "💵 Available", "value": f"${buying_power:.2f}", "inline": True},
+                        {"name": "📊 Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
+                    ],
+                    footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
+                )
                 return
             
             # Place limit order
@@ -427,69 +694,307 @@ class GTTOrderManager:
             
             placed_order = self.trading_client.submit_order(order_data=order_request)
             order.order_id = placed_order.id
-            order.status = "placed"
+            # Use actual Alpaca status (could be "new", "accepted", etc.)
+            alpaca_status = placed_order.status.value if hasattr(placed_order.status, 'value') else str(placed_order.status)
+            order.status = alpaca_status.lower() if alpaca_status else "placed"
             
-            logger.info(f"ORDER PLACED: {symbol} - Limit: ${order.price:.2f}, "
+            logger.info(f"ORDER PLACED: {symbol} - Order {order_num} "
+                       f"Limit: ${order.price:.2f}, "
                        f"Qty: {order.amount}, Order ID: {placed_order.id}")
             
-            console.print(f"[bold green]✓ ORDER PLACED[/bold green]: [cyan]{symbol}[/cyan] - "
-                         f"Limit: [yellow]${order.price:.2f}[/yellow], "
-                         f"Qty: [cyan]{order.amount}[/cyan], "
+            console.print(f"[bold green]✓ ORDER PLACED[/bold green]: {symbol} - Order {order_num} "
+                         f"Limit: [cyan]${order.price:.2f}[/cyan], "
+                         f"Qty: [yellow]{order.amount}[/yellow], "
                          f"Order ID: [dim]{placed_order.id}[/dim]")
+            
+            # Send Discord notification for order placed
+            self._send_discord_notification(
+                title="✅ Order Placed",
+                description=f"**{symbol}** - Order {order_num} of {total_orders} has been placed",
+                color=0x00ff00,  # Green (will be converted to decimal)
+                fields=[
+                    {"name": "💰 Limit Price", "value": f"${order.price:.2f}", "inline": True},
+                    {"name": "📊 Quantity", "value": f"{order.amount} shares", "inline": True},
+                    {"name": "🆔 Order ID", "value": f"`{placed_order.id[:8]}...`", "inline": False},
+                    {"name": "📈 Status", "value": "**Placed** - Waiting for execution", "inline": False},
+                ],
+                footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
+            )
+            
+            # Send email notification for order placed
+            self._send_email_notification(
+                title="✅ Order Placed",
+                description=f"{symbol} - Order {order_num} of {total_orders} has been placed",
+                fields=[
+                    {"name": "Limit Price", "value": f"${order.price:.2f}"},
+                    {"name": "Quantity", "value": f"{order.amount} shares"},
+                    {"name": "Order ID", "value": placed_order.id[:8] + "..."},
+                    {"name": "Status", "value": "Placed - Waiting for execution"},
+                ],
+                footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
+            )
+            
+            # Record activity for daily/weekly summaries
+            self.notification_manager.record_order_activity(
+                symbol=symbol,
+                company=ladder.company,
+                order_num=order_num,
+                action='placed',
+                price=order.price,
+                amount=order.amount,
+                order_id=placed_order.id
+            )
             
         except APIError as e:
             logger.error(f"Error placing order for {symbol}: {e}")
         except Exception as e:
             logger.error(f"Unexpected error placing order for {symbol}: {e}")
     
+    def _notify_order_status_change(self, symbol: str, ladder: SymbolLadder, order: SequentialOrder, 
+                                     old_status: str, new_status: str, order_num: int, total_orders: int):
+        """Send notifications for any order status change"""
+        status_messages = {
+            "filled": {
+                "title": "🎯 Order Filled",
+                "description": f"{symbol} - Order {order_num} of {total_orders} has been **executed**",
+                "color": 0xff9900,  # Orange
+                "email_title": "🎯 Order Filled",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} has been executed"
+            },
+            "partially_filled": {
+                "title": "📊 Order Partially Filled",
+                "description": f"{symbol} - Order {order_num} of {total_orders} is **partially executed**",
+                "color": 0xffaa00,  # Yellow-orange
+                "email_title": "📊 Order Partially Filled",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} is partially executed"
+            },
+            "cancelled": {
+                "title": "❌ Order Cancelled",
+                "description": f"{symbol} - Order {order_num} of {total_orders} has been **cancelled**",
+                "color": 0xff0000,  # Red
+                "email_title": "❌ Order Cancelled",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} has been cancelled"
+            },
+            "expired": {
+                "title": "⏰ Order Expired",
+                "description": f"{symbol} - Order {order_num} of {total_orders} has **expired**",
+                "color": 0xff6600,  # Orange-red
+                "email_title": "⏰ Order Expired",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} has expired"
+            },
+            "rejected": {
+                "title": "🚫 Order Rejected",
+                "description": f"{symbol} - Order {order_num} of {total_orders} was **rejected**",
+                "color": 0xcc0000,  # Dark red
+                "email_title": "🚫 Order Rejected",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} was rejected"
+            },
+            "pending_cancel": {
+                "title": "⏳ Order Pending Cancel",
+                "description": f"{symbol} - Order {order_num} of {total_orders} is **pending cancellation**",
+                "color": 0xffaa00,  # Yellow
+                "email_title": "⏳ Order Pending Cancel",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} is pending cancellation"
+            },
+            "pending_replace": {
+                "title": "🔄 Order Pending Replace",
+                "description": f"{symbol} - Order {order_num} of {total_orders} is **pending replacement**",
+                "color": 0x0099ff,  # Blue
+                "email_title": "🔄 Order Pending Replace",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} is pending replacement"
+            },
+            "replaced": {
+                "title": "🔄 Order Replaced",
+                "description": f"{symbol} - Order {order_num} of {total_orders} has been **replaced**",
+                "color": 0x0099ff,  # Blue
+                "email_title": "🔄 Order Replaced",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} has been replaced"
+            }
+        }
+        
+        # Get notification details for this status
+        msg_info = status_messages.get(new_status.lower())
+        if not msg_info:
+            # Generic status change notification
+            msg_info = {
+                "title": f"📝 Order Status Changed",
+                "description": f"{symbol} - Order {order_num} of {total_orders} status changed: {old_status} → {new_status}",
+                "color": 0x666666,  # Gray
+                "email_title": f"📝 Order Status Changed",
+                "email_desc": f"{symbol} - Order {order_num} of {total_orders} status changed: {old_status} → {new_status}"
+            }
+        
+        # Common fields for all notifications
+        fields = [
+            {"name": "💰 Limit Price", "value": f"${order.price:.2f}", "inline": True},
+            {"name": "📊 Quantity", "value": f"{order.amount} shares", "inline": True},
+            {"name": "🆔 Order ID", "value": f"`{order.order_id[:8]}...`" if order.order_id else "N/A", "inline": False},
+            {"name": "📈 Status", "value": f"**{old_status}** → **{new_status}**", "inline": False},
+        ]
+        
+        # Add total value for filled/partially filled orders
+        if new_status.lower() in ["filled", "partially_filled"]:
+            fields.insert(2, {"name": "💵 Total Value", "value": f"${order.price * order.amount:.2f}", "inline": True})
+        
+        # Send Discord notification
+        self._send_discord_notification(
+            title=msg_info["title"],
+            description=msg_info["description"],
+            color=msg_info["color"],
+            fields=fields,
+            footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
+        )
+        
+        # Send email notification
+        email_fields = [
+            {"name": "Limit Price", "value": f"${order.price:.2f}"},
+            {"name": "Quantity", "value": f"{order.amount} shares"},
+            {"name": "Order ID", "value": order.order_id[:8] + "..." if order.order_id else "N/A"},
+            {"name": "Status Change", "value": f"{old_status} → {new_status}"},
+        ]
+        
+        if new_status.lower() in ["filled", "partially_filled"]:
+            email_fields.insert(2, {"name": "Total Value", "value": f"${order.price * order.amount:.2f}"})
+        
+        self._send_email_notification(
+            title=msg_info["email_title"],
+            description=msg_info["email_desc"],
+            fields=email_fields,
+            footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
+        )
+        
+        # Record activity for daily/weekly summaries
+        self.notification_manager.record_order_activity(
+            symbol=symbol,
+            company=ladder.company,
+            order_num=order_num,
+            action=new_status.lower(),
+            price=order.price,
+            amount=order.amount,
+            order_id=order.order_id or "",
+            details={'old_status': old_status, 'new_status': new_status}
+        )
+    
     def _monitor_order_fills(self):
-        """Monitor placed orders and check if they're filled"""
+        """Monitor all orders and notify on any status changes"""
         for symbol, ladder in self.ladders.items():
-            current_order = ladder.get_current_order()
-            
-            if not current_order:
-                continue
-            
-            # Only check status for placed orders
-            if current_order.status != "placed":
-                continue
-            
-            if not current_order.order_id:
-                continue
-            
-            # Check order status
-            status = self._check_order_status(current_order.order_id)
-            
-            if status == "filled":
-                if current_order.status != "filled":
-                    current_order.status = "filled"
-                    logger.info(f"ORDER FILLED: {symbol} - Order {ladder.current_order_index + 1} completed!")
-                    
-                    # Advance to next order
-                    ladder.advance_to_next_order()
-                    
-                    # Immediately place the next order (don't wait for trigger)
-                    next_order = ladder.get_current_order()
-                    if next_order and next_order.status == "pending":
-                        logger.info(f"AUTO-PLACE: {symbol} - Immediately placing Order {ladder.current_order_index + 1} "
-                                  f"at limit price ${next_order.price:.2f}")
-                        self._place_order(ladder, next_order, symbol)
-            elif status == "cancelled" or status == "expired":
-                # Reset order to pending so it can be retried
-                logger.warning(f"ORDER {status.upper()}: {symbol} - Order {ladder.current_order_index + 1}. "
-                             f"Will retry when trigger condition is met again.")
-                current_order.status = "pending"
-                current_order.order_id = None  # Clear order ID so we can place a new one
+            # Check all orders in the ladder, not just current
+            for idx, order in enumerate(ladder.orders):
+                if not order.order_id:
+                    continue
+                
+                # Get current status from Alpaca
+                alpaca_status = self._check_order_status(order.order_id)
+                if not alpaca_status:
+                    continue
+                
+                # Normalize status (Alpaca uses different casing)
+                alpaca_status = alpaca_status.lower()
+                old_status = order.status.lower()
+                
+                # Skip if status hasn't changed
+                if alpaca_status == old_status:
+                    continue
+                
+                # Status has changed - update and notify
+                order_num = idx + 1
+                total_orders = len(ladder.orders)
+                
+                logger.info(f"ORDER STATUS CHANGE: {symbol} - Order {order_num}: {old_status} → {alpaca_status}")
+                
+                # Update order status
+                order.status = alpaca_status
+                
+                # Send notifications for status change
+                self._notify_order_status_change(
+                    symbol, ladder, order, old_status, alpaca_status, order_num, total_orders
+                )
+                
+                # Handle specific status changes
+                if alpaca_status == "filled":
+                    # Advance to next order if this was the current order
+                    if idx == ladder.current_order_index:
+                        ladder.advance_to_next_order()
+                        
+                        # Immediately place the next order (don't wait for trigger)
+                        next_order = ladder.get_current_order()
+                        if next_order and next_order.status == "pending":
+                            next_order_num = ladder.current_order_index + 1
+                            logger.info(f"AUTO-PLACE: {symbol} - Immediately placing Order {next_order_num} "
+                                      f"at limit price ${next_order.price:.2f}")
+                            
+                            # Send Discord notification for next order coming up
+                            self._send_discord_notification(
+                                title="⏭️ Next Order Queued",
+                                description=f"**{symbol}** - Order {next_order_num} of {total_orders} will be placed immediately",
+                                color=0x0099ff,  # Blue
+                                fields=[
+                                    {"name": "💰 Next Limit Price", "value": f"${next_order.price:.2f}", "inline": True},
+                                    {"name": "📊 Next Quantity", "value": f"{next_order.amount} shares", "inline": True},
+                                    {"name": "💵 Estimated Value", "value": f"${next_order.price * next_order.amount:.2f}", "inline": True},
+                                    {"name": "⚡ Status", "value": "**Queued** - Will place automatically", "inline": False},
+                                ],
+                                footer_text=f"{ladder.company} • Order {next_order_num}/{total_orders} ready"
+                            )
+                            
+                            # Send email notification for next order
+                            self._send_email_notification(
+                                title="⏭️ Next Order Queued",
+                                description=f"{symbol} - Order {next_order_num} of {total_orders} will be placed immediately",
+                                fields=[
+                                    {"name": "Next Limit Price", "value": f"${next_order.price:.2f}"},
+                                    {"name": "Next Quantity", "value": f"{next_order.amount} shares"},
+                                    {"name": "Estimated Value", "value": f"${next_order.price * next_order.amount:.2f}"},
+                                    {"name": "Status", "value": "Queued - Will place automatically"},
+                                ],
+                                footer_text=f"{ladder.company} • Order {next_order_num}/{total_orders} ready"
+                            )
+                            
+                            self._place_order(ladder, next_order, symbol)
+                
+                elif alpaca_status in ["cancelled", "expired", "rejected"]:
+                    # Reset order to pending so it can be retried (if it's the current order)
+                    if idx == ladder.current_order_index:
+                        logger.warning(f"ORDER {alpaca_status.upper()}: {symbol} - Order {order_num}. "
+                                     f"Will retry when trigger condition is met again.")
+                        order.status = "pending"
+                        order.order_id = None  # Clear order ID so we can place a new one
     
     def start_monitoring(self):
-        """Start WebSocket monitoring for all symbols"""
-        symbols = list(self.ladders.keys())
+        """Start WebSocket monitoring for all symbols with smart batching to handle symbol limits"""
+        all_symbols = list(self.ladders.keys())
         
-        if not symbols:
+        if not all_symbols:
             logger.warning("No orders loaded. Nothing to monitor.")
             return
         
-        logger.info(f"Starting WebSocket monitoring for {len(symbols)} symbols: {symbols}")
+        # Alpaca WebSocket limit: ~3500 symbols per connection
+        # Use a conservative limit to avoid hitting the cap
+        MAX_SYMBOLS_PER_CONNECTION = 3000
+        
+        # Prioritize symbols: those with pending orders (current_order_index == 0) first
+        # Then symbols with placed orders, then others
+        prioritized_symbols = []
+        secondary_symbols = []
+        
+        for symbol in all_symbols:
+            ladder = self.ladders[symbol]
+            current_order = ladder.get_current_order()
+            if current_order and current_order.status == "pending":
+                prioritized_symbols.append(symbol)
+            elif any(order.order_id for order in ladder.orders):
+                secondary_symbols.append(symbol)
+            else:
+                secondary_symbols.append(symbol)
+        
+        # Combine prioritized and secondary, up to the limit
+        symbols_to_stream = (prioritized_symbols + secondary_symbols)[:MAX_SYMBOLS_PER_CONNECTION]
+        symbols_to_poll = all_symbols[MAX_SYMBOLS_PER_CONNECTION:]
+        
+        logger.info(f"Starting WebSocket monitoring for {len(symbols_to_stream)}/{len(all_symbols)} symbols")
+        if symbols_to_poll:
+            logger.info(f"Using polling mode for {len(symbols_to_poll)} additional symbols (exceeds WebSocket limit)")
+            logger.debug(f"Polling symbols: {symbols_to_poll[:10]}{'...' if len(symbols_to_poll) > 10 else ''}")
         
         # Test SSL connection first to avoid infinite retry loops
         # Best practice: Try to use certifi certificates if available
@@ -529,12 +1034,23 @@ class GTTOrderManager:
         except Exception as e:
             logger.warning(f"Could not test SSL connection: {e}. Will attempt WebSocket anyway.")
         
-        # Subscribe to quotes for all symbols with async handler
-        try:
-            # Register the async handler for quotes
-            self.stream.subscribe_quotes(self._handle_quote, *symbols)
-            
-            logger.info("WebSocket subscribed. Attempting to connect...")
+        # Subscribe to quotes for symbols within limit with async handler
+        websocket_success = False
+        if symbols_to_stream:
+            try:
+                # Register the async handler for quotes
+                self.stream.subscribe_quotes(self._handle_quote, *symbols_to_stream)
+                logger.info(f"WebSocket subscribed to {len(symbols_to_stream)} symbols. Attempting to connect...")
+                websocket_success = True
+            except Exception as e:
+                error_msg = str(e).lower()
+                if '405' in error_msg or 'limit' in error_msg or 'exceeded' in error_msg:
+                    logger.warning(f"Symbol limit exceeded (405) - too many symbols. Using polling mode for all symbols.")
+                    logger.info(f"Alpaca WebSocket limit is ~3500 symbols. You have {len(all_symbols)} symbols.")
+                    websocket_success = False
+                else:
+                    logger.error(f"Error subscribing to WebSocket: {e}")
+                    websocket_success = False
             
             # Run WebSocket stream in a separate thread with asyncio
             import threading
@@ -552,47 +1068,67 @@ class GTTOrderManager:
                     websocket_failed.set()
                     stream_running.clear()
                 except Exception as e:
-                    logger.error(f"WebSocket error: {e}")
+                    error_msg = str(e).lower()
+                    if '405' in error_msg or ('limit' in error_msg and 'exceeded' in error_msg):
+                        logger.warning(f"Symbol limit exceeded (405) during WebSocket run: {e}")
+                        logger.info("This can happen if:")
+                        logger.info("  1. Too many symbols subscribed (>3500)")
+                        logger.info("  2. Previous connection not properly closed")
+                        logger.info("  3. Multiple connections from same API key")
+                        logger.info("Falling back to polling mode for all symbols.")
+                    elif '406' in error_msg or 'connection limit' in error_msg:
+                        logger.warning(f"Connection limit exceeded (406): {e}")
+                        logger.info("Only one WebSocket connection allowed per API key.")
+                        logger.info("Falling back to polling mode.")
+                    else:
+                        logger.error(f"WebSocket error: {e}")
+                        logger.info("Falling back to polling mode.")
                     websocket_failed.set()
                     stream_running.clear()
             
-            stream_thread = threading.Thread(target=run_stream, daemon=True)
-            stream_thread.start()
-            
-            # Wait for stream to start or fail
-            time.sleep(3)
-            
-            # Check if WebSocket failed immediately (SSL error)
-            if websocket_failed.is_set():
-                logger.warning("WebSocket connection failed. Using polling mode.")
+            if websocket_success:
+                stream_thread = threading.Thread(target=run_stream, daemon=True)
+                stream_thread.start()
+                
+                # Wait for stream to start or fail
+                time.sleep(3)
+                
+                # Check if WebSocket failed immediately (SSL error or limit)
+                if websocket_failed.is_set():
+                    logger.warning("WebSocket connection failed. Using polling mode for all symbols.")
+                    self.check_triggers_polling()
+                    return
+                
+                # Main monitoring loop: check order fills periodically
+                max_iterations = 12  # Check for 1 minute max (12 * 5 seconds)
+                iteration = 0
+                while stream_running.is_set() and iteration < max_iterations:
+                    time.sleep(5)  # Check order fills every 5 seconds
+                    self._monitor_order_fills()
+                    iteration += 1
+                
+                # Check if WebSocket failed during monitoring
+                if websocket_failed.is_set() or not stream_running.is_set():
+                    logger.warning("WebSocket stopped. Falling back to polling mode.")
+                    self.check_triggers_polling()
+                else:
+                    # If we reach here, WebSocket is still running
+                    logger.info("WebSocket running successfully. Continuing monitoring...")
+                    while stream_running.is_set():
+                        time.sleep(5)
+                        self._monitor_order_fills()
+            else:
+                # WebSocket subscription failed - use polling for all symbols
+                logger.info("WebSocket subscription failed. Using polling mode for all symbols.")
                 self.check_triggers_polling()
                 return
-            
-            # Main monitoring loop: check order fills periodically
-            max_iterations = 12  # Check for 1 minute max (12 * 5 seconds)
-            iteration = 0
-            while stream_running.is_set() and iteration < max_iterations:
-                time.sleep(5)  # Check order fills every 5 seconds
-                self._monitor_order_fills()
-                iteration += 1
-            
-            # Check if WebSocket failed during monitoring
-            if websocket_failed.is_set() or not stream_running.is_set():
-                logger.warning("WebSocket stopped. Falling back to polling mode.")
-                self.check_triggers_polling()
-            else:
-                # If we reach here, WebSocket is still running
-                logger.info("WebSocket running successfully. Continuing monitoring...")
-                while stream_running.is_set():
-                    time.sleep(5)
-                    self._monitor_order_fills()
-                
-        except KeyboardInterrupt:
-            logger.info("Monitoring stopped by user")
-        except Exception as e:
-            logger.error(f"Error in WebSocket setup: {e}")
-            logger.warning("Falling back to polling mode.")
-            self.check_triggers_polling()
+        
+        # If we have symbols to poll (beyond WebSocket limit), start polling for them
+        if symbols_to_poll:
+            logger.info(f"Starting polling mode for {len(symbols_to_poll)} symbols beyond WebSocket limit")
+            # Store symbols to poll separately - they'll be handled in check_triggers_polling
+            # For now, they're already included in self.ladders, so polling will handle them
+            # But we could optimize by only polling these specific symbols
     
     def get_current_prices(self) -> Dict[str, float]:
         """Get current prices for all symbols (fallback if WebSocket fails)"""
@@ -727,9 +1263,16 @@ def main():
     
     # Start API server in a separate thread
     import threading
-    from api_server import app, set_manager
+    from .api_server import app, set_manager
     
     set_manager(manager)
+    
+    # Set trading mode explicitly in api_server
+    try:
+        from . import api_server
+        api_server.trading_mode = paper
+    except ImportError:
+        pass
     
     def run_api_server():
         api_port = int(os.getenv('PORT_API', '8080'))
@@ -750,7 +1293,7 @@ def main():
     
     if stocks_csv and os.path.exists(stocks_csv):
         try:
-            from api_server import set_loading_status
+            from .api_server import set_loading_status
             set_loading_status(True, "Loading stocks/ETFs", 0, 0, "", f"Loading from {os.path.basename(stocks_csv)}...")
         except ImportError:
             pass
@@ -761,7 +1304,7 @@ def main():
     
     if crypto_csv and os.path.exists(crypto_csv):
         try:
-            from api_server import set_loading_status
+            from .api_server import set_loading_status
             set_loading_status(True, "Loading crypto", 0, 0, "", f"Loading from {os.path.basename(crypto_csv)}...")
         except ImportError:
             pass
@@ -773,11 +1316,18 @@ def main():
     
     # Sync with existing Alpaca orders (in case orders were placed outside the monitor)
     try:
-        from api_server import set_loading_status
+        from .api_server import set_loading_status, clear_loading_status
         set_loading_status(True, "Syncing with Alpaca", 0, 0, "", "Syncing orders with Alpaca...")
     except ImportError:
         pass
     manager.sync_with_alpaca_orders()
+    
+    # Clear loading status after all initialization is complete
+    try:
+        from .api_server import clear_loading_status
+        clear_loading_status()
+    except ImportError:
+        pass
     
     # Display summary
     total_symbols = len(manager.ladders)
@@ -809,6 +1359,39 @@ def main():
     console.print(f"[green]✓[/green] CSV file watcher started on [cyan]{data_dir}[/cyan]")
     console.print(f"[cyan]ℹ[/cyan] Watching: [yellow]gtt-live-stocks-etfs.csv[/yellow] and [yellow]gtt-live-crypto.csv[/yellow]")
     logger.info(f"CSV file watcher started on {data_dir}")
+    
+    # Set up scheduled jobs for daily and weekly summaries
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        import pytz
+        
+        scheduler = BackgroundScheduler(timezone=pytz.timezone('America/New_York'))
+        
+        # Daily summary at 9:30 AM EST (market open)
+        scheduler.add_job(
+            manager.notification_manager.send_daily_summary,
+            trigger=CronTrigger(hour=9, minute=30, timezone=pytz.timezone('America/New_York')),
+            id='daily_summary',
+            name='Daily Trading Summary',
+            replace_existing=True
+        )
+        
+        # Weekly summary on Monday at 9:00 AM EST
+        scheduler.add_job(
+            manager.notification_manager.send_weekly_summary,
+            trigger=CronTrigger(day_of_week='mon', hour=9, minute=0, timezone=pytz.timezone('America/New_York')),
+            id='weekly_summary',
+            name='Weekly Trading Summary',
+            replace_existing=True
+        )
+        
+        scheduler.start()
+        logger.info("Scheduled jobs started: Daily summary (9:30 AM EST), Weekly summary (Monday 9:00 AM EST)")
+        console.print("[green]✓[/green] Scheduled notifications: Daily (9:30 AM EST), Weekly (Monday 9:00 AM EST)")
+    except Exception as e:
+        logger.warning(f"Failed to start scheduled jobs: {e}")
+        console.print(f"[yellow]⚠[/yellow] Scheduled jobs not started: {e}")
     
     # Start monitoring
     try:
