@@ -64,8 +64,14 @@ function ForceFillButton({
 }) {
   const [loading, setLoading] = useState(false)
   const apiPort = process.env.NEXT_PUBLIC_API_PORT || '8080'
-  const apiHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-  const apiBaseUrl = `http://${apiHost}:${apiPort}`
+  // Use NEXT_PUBLIC_API_HOST if set (for production), otherwise detect from window (for local dev)
+  const apiHost = process.env.NEXT_PUBLIC_API_HOST || 
+    (typeof window !== 'undefined' ? window.location.hostname : 'localhost')
+  // Use https in production if API host is provided, otherwise http for local dev
+  const protocol = process.env.NEXT_PUBLIC_API_HOST ? 'https' : 'http'
+  // Don't append port for standard HTTPS (443) or HTTP (80)
+  const portSuffix = (apiPort === '443' || apiPort === '80') ? '' : `:${apiPort}`
+  const apiBaseUrl = `${protocol}://${apiHost}${portSuffix}`
 
   const handleForceFill = async (e: React.MouseEvent) => {
     e.stopPropagation() // Prevent event from bubbling up to table row
@@ -197,8 +203,14 @@ interface MarketStatus {
 export default function OrdersPage() {
   // Get API base URL
   const apiPort = process.env.NEXT_PUBLIC_API_PORT || '8080'
-  const apiHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-  const apiBaseUrl = `http://${apiHost}:${apiPort}`
+  // Use NEXT_PUBLIC_API_HOST if set (for production), otherwise detect from window (for local dev)
+  const apiHost = process.env.NEXT_PUBLIC_API_HOST || 
+    (typeof window !== 'undefined' ? window.location.hostname : 'localhost')
+  // Use https in production if API host is provided, otherwise http for local dev
+  const protocol = process.env.NEXT_PUBLIC_API_HOST ? 'https' : 'http'
+  // Don't append port for standard HTTPS (443) or HTTP (80)
+  const portSuffix = (apiPort === '443' || apiPort === '80') ? '' : `:${apiPort}`
+  const apiBaseUrl = `${protocol}://${apiHost}${portSuffix}`
   
   // SWR hooks for data fetching - automatic polling, no full page refresh
   const { data: ordersData, error: ordersError, isLoading: ordersLoading } = useSWR(
@@ -1057,12 +1069,12 @@ export default function OrdersPage() {
                                 Processing: {loadingStatus.current_symbol}
                               </p>
                             )}
-                            {loadingStatus.total > 0 && (
+                            {loadingStatus.total > 0 && loadingStatus.progress > 0 && (
                               <div className="flex items-center gap-2 justify-center">
                                 <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
                                   <div 
                                     className="h-full bg-primary transition-all duration-300"
-                                    style={{ width: `${(loadingStatus.progress / loadingStatus.total) * 100}%` }}
+                                    style={{ width: `${Math.min(100, (loadingStatus.progress / loadingStatus.total) * 100)}%` }}
                                   />
                                 </div>
                                 <span className="text-xs text-muted-foreground">
@@ -1070,7 +1082,7 @@ export default function OrdersPage() {
                                 </span>
                               </div>
                             )}
-                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && (
+                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && loadingStatus.loaded_symbols.length <= 10 && (
                               <p className="text-xs text-muted-foreground">
                                 Loaded: {loadingStatus.loaded_symbols.slice(-5).join(", ")}
                                 {loadingStatus.loaded_symbols.length > 5 && ` ... (+${loadingStatus.loaded_symbols.length - 5} more)`}
@@ -1192,12 +1204,12 @@ export default function OrdersPage() {
                                 Processing: {loadingStatus.current_symbol}
                               </p>
                             )}
-                            {loadingStatus.total > 0 && (
+                            {loadingStatus.total > 0 && loadingStatus.progress > 0 && (
                               <div className="flex items-center gap-2 justify-center">
                                 <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
                                   <div 
                                     className="h-full bg-primary transition-all duration-300"
-                                    style={{ width: `${(loadingStatus.progress / loadingStatus.total) * 100}%` }}
+                                    style={{ width: `${Math.min(100, (loadingStatus.progress / loadingStatus.total) * 100)}%` }}
                                   />
                                 </div>
                                 <span className="text-xs text-muted-foreground">
@@ -1205,7 +1217,7 @@ export default function OrdersPage() {
                                 </span>
                               </div>
                             )}
-                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && (
+                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && loadingStatus.loaded_symbols.length <= 10 && (
                               <p className="text-xs text-muted-foreground">
                                 Loaded: {loadingStatus.loaded_symbols.slice(-5).join(", ")}
                                 {loadingStatus.loaded_symbols.length > 5 && ` ... (+${loadingStatus.loaded_symbols.length - 5} more)`}
@@ -1327,12 +1339,12 @@ export default function OrdersPage() {
                                 Processing: {loadingStatus.current_symbol}
                               </p>
                             )}
-                            {loadingStatus.total > 0 && (
+                            {loadingStatus.total > 0 && loadingStatus.progress > 0 && (
                               <div className="flex items-center gap-2 justify-center">
                                 <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
                                   <div 
                                     className="h-full bg-primary transition-all duration-300"
-                                    style={{ width: `${(loadingStatus.progress / loadingStatus.total) * 100}%` }}
+                                    style={{ width: `${Math.min(100, (loadingStatus.progress / loadingStatus.total) * 100)}%` }}
                                   />
                                 </div>
                                 <span className="text-xs text-muted-foreground">
@@ -1340,7 +1352,7 @@ export default function OrdersPage() {
                                 </span>
                               </div>
                             )}
-                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && (
+                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && loadingStatus.loaded_symbols.length <= 10 && (
                               <p className="text-xs text-muted-foreground">
                                 Loaded: {loadingStatus.loaded_symbols.slice(-5).join(", ")}
                                 {loadingStatus.loaded_symbols.length > 5 && ` ... (+${loadingStatus.loaded_symbols.length - 5} more)`}

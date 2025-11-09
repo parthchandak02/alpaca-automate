@@ -6,15 +6,21 @@ const path = require('path');
 // Get project root directory (one level up from config/)
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
+// Improved PM2 Configuration - Separate Processes for Accurate Metrics
+// This runs backend and frontend as independent PM2 processes
+// No shell script wrapper - PM2 tracks actual Python/Node processes directly
+
 module.exports = {
   apps: [
+    // Backend: Python Flask + Monitor
     {
-      name: 'gtt-app',
-      script: path.join(__dirname, 'start.sh'),
-      interpreter: 'bash',
+      name: 'gtt-backend',
+      script: 'uv',
+      args: 'run python -m src.gtt_monitor',
       cwd: PROJECT_ROOT,
+      interpreter: 'none', // Run uv directly, not through bash wrapper
       instances: 1,
-      exec_mode: 'fork', // Use fork mode (not cluster) since we're managing multiple processes
+      exec_mode: 'fork',
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
@@ -35,26 +41,56 @@ module.exports = {
         SMTP_USERNAME: process.env.SMTP_USERNAME,
         SMTP_PASSWORD: process.env.SMTP_PASSWORD,
         EMAIL_TO: process.env.EMAIL_TO,
-        NEXT_PUBLIC_API_PORT: process.env.NEXT_PUBLIC_API_PORT || process.env.PORT_API || '8080',
         USE_TEST_CSV: process.env.USE_TEST_CSV || 'true',
       },
-      // Logging configuration with built-in PM2 rotation
-      error_file: path.join(PROJECT_ROOT, 'logs', 'pm2-error.log'),
-      out_file: path.join(PROJECT_ROOT, 'logs', 'pm2-out.log'),
-      log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-combined.log'),
+      // Separate log files for backend
+      error_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-error.log'),
+      out_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-out.log'),
+      log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-combined.log'),
       time: true,
       merge_logs: true,
-      // Built-in PM2 log rotation (no separate module needed)
-      max_size: '2M',        // Rotate when log reaches 2MB
-      retain: 2,              // Keep 2 rotated files (minimal retention)
-      // Restart configuration
-      restart_delay: 5000, // Wait 5 seconds before restarting
-      max_restarts: 10, // Max restarts in 1 minute
-      min_uptime: '10s', // Consider app stable after 10 seconds
-      // Graceful shutdown
-      kill_timeout: 10000, // Wait 10 seconds for graceful shutdown
-      listen_timeout: 3000, // Wait 3 seconds for app to start listening
-      shutdown_with_message: true, // Send shutdown message before killing
+      max_size: '2M',
+      retain: 2,
+      restart_delay: 5000,
+      max_restarts: 10,
+      min_uptime: '10s',
+      kill_timeout: 10000,
+      listen_timeout: 3000,
+      shutdown_with_message: true,
+    },
+    
+    // Frontend: Next.js UI
+    {
+      name: 'gtt-frontend',
+      script: 'npm',
+      args: 'run dev', // Use 'dev' for local, change to 'start' for production after build
+      cwd: path.join(PROJECT_ROOT, 'ui'),
+      interpreter: 'none', // Run npm directly, not through bash wrapper
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '500M',
+      env: {
+        NODE_ENV: 'production',
+        PORT: process.env.PORT_UI || '3000',
+        NEXT_PUBLIC_API_PORT: process.env.NEXT_PUBLIC_API_PORT || process.env.PORT_API || '8080',
+        NEXT_PUBLIC_API_HOST: process.env.NEXT_PUBLIC_API_HOST, // For production (Railway)
+      },
+      // Separate log files for frontend
+      error_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-error.log'),
+      out_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-out.log'),
+      log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-combined.log'),
+      time: true,
+      merge_logs: true,
+      max_size: '2M',
+      retain: 2,
+      restart_delay: 5000,
+      max_restarts: 10,
+      min_uptime: '10s',
+      kill_timeout: 10000,
+      listen_timeout: 3000,
+      shutdown_with_message: true,
     },
   ],
 };

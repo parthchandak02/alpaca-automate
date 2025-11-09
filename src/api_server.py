@@ -43,7 +43,8 @@ loading_status = {
     "total": 0,
     "current_symbol": "",
     "loaded_symbols": [],
-    "message": ""
+    "message": "",
+    "has_loaded_once": False  # Track if we've completed initial load
 }
 
 def set_manager(mgr: GTTOrderManager):
@@ -53,16 +54,37 @@ def set_manager(mgr: GTTOrderManager):
     # Extract paper trading mode from the manager
     trading_mode = getattr(mgr.trading_client, 'is_paper', True)  # Default to paper
 
-def set_loading_status(is_loading: bool, step: str = "", progress: int = 0, total: int = 0, symbol: str = "", message: str = ""):
-    """Update loading status for progress tracking"""
+def set_loading_status(is_loading: bool, step: str = "", progress: int = 0, total: int = 0, symbol: str = "", message: str = "", clear_symbols: bool = False, force_show: bool = False):
+    """Update loading status for progress tracking
+    
+    Args:
+        is_loading: Whether loading is in progress
+        step: Current step name
+        progress: Current progress count
+        total: Total steps/items
+        symbol: Current symbol being processed
+        message: Status message
+        clear_symbols: Clear loaded_symbols array
+        force_show: Force showing loading even if has_loaded_once is True (for CSV reloads, etc.)
+    """
     global loading_status
-    loading_status["is_loading"] = is_loading
+    # If forcing show (e.g., CSV reload), temporarily allow loading status
+    if force_show and is_loading:
+        loading_status["is_loading"] = True
+    elif not force_show:
+        # Only set is_loading if not forcing (normal behavior)
+        loading_status["is_loading"] = is_loading
+    
     loading_status["current_step"] = step
     loading_status["progress"] = progress
     loading_status["total"] = total
     loading_status["current_symbol"] = symbol
     loading_status["message"] = message
-    if symbol and symbol not in loading_status["loaded_symbols"]:
+    # Clear loaded_symbols if starting a new load
+    if clear_symbols:
+        loading_status["loaded_symbols"] = []
+    # Only append symbol if we're actively loading and symbol is provided
+    if loading_status["is_loading"] and symbol and symbol not in loading_status["loaded_symbols"]:
         loading_status["loaded_symbols"].append(symbol)
 
 def clear_loading_status():
@@ -95,14 +117,20 @@ def get_orders():
         return jsonify({"error": "Manager not initialized"}), 503
     
     try:
-        # Set initial loading status BEFORE processing starts
-        set_loading_status(True, "Fetching orders from Alpaca", 0, 4, "", "Connecting to Alpaca API...")
+        # Only show loading status if this is a significant operation (initial load or first request)
+        # For regular refreshes (every 5 seconds), don't show loading to avoid flickering
+        is_initial_load = not loading_status.get("has_loaded_once", False)
+        
+        if is_initial_load:
+            # Set initial loading status BEFORE processing starts (only for first load)
+            set_loading_status(True, "Fetching orders from Alpaca", 0, 4, "", "Connecting to Alpaca API...", clear_symbols=True)
         
         # Get active orders from Alpaca
         active_orders = []
         alpaca_orders_list = []
         try:
-            set_loading_status(True, "Fetching orders from Alpaca", 1, 4, "", "Requesting orders from Alpaca...")
+            if is_initial_load:
+                set_loading_status(True, "Fetching orders from Alpaca", 1, 4, "", "Requesting orders from Alpaca...")
             # Use GetOrdersRequest for proper API usage
             if QueryOrderStatus:
                 orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=100)
@@ -111,7 +139,8 @@ def get_orders():
                 orders_request = GetOrdersRequest(limit=100)
             alpaca_orders_list = manager.trading_client.get_orders(orders_request)
             
-            set_loading_status(True, "Processing Alpaca orders", 2, 4, "", f"Processing {len(alpaca_orders_list)} orders from Alpaca...")
+            if is_initial_load:
+                set_loading_status(True, "Processing Alpaca orders", 2, 4, "", f"Processing {len(alpaca_orders_list)} orders from Alpaca...")
             for order in alpaca_orders_list:
                 active_orders.append({
                     "id": order.id,
@@ -128,14 +157,16 @@ def get_orders():
             logger.error(f"Error fetching active orders: {e}", exc_info=True)
         
         # Get GTT orders from ladders
-        set_loading_status(True, "Processing GTT orders", 3, 4, "", f"Processing GTT orders for {len(manager.ladders)} symbols...")
+        if is_initial_load:
+            set_loading_status(True, "Processing GTT orders", 3, 4, "", f"Processing GTT orders for {len(manager.ladders)} symbols...")
         gtt_orders = []
         total_symbols = len(manager.ladders)
         processed = 0
         
         for symbol, ladder in manager.ladders.items():
             processed += 1
-            set_loading_status(True, "Processing GTT orders", 3, 4, symbol, f"Processing {symbol} ({processed}/{total_symbols})...")
+            if is_initial_load:
+                set_loading_status(True, "Processing GTT orders", 3, 4, symbol, f"Processing {symbol} ({processed}/{total_symbols})...")
             
             # Get all Alpaca orders for this symbol to sync statuses
             symbol_alpaca_orders = {}
@@ -175,8 +206,14 @@ def get_orders():
                     "is_current": idx == ladder.current_order_index,
                 })
         
-        # Clear loading status when done
-        set_loading_status(False, "Complete", 4, 4, "", f"Loaded {len(gtt_orders)} GTT orders and {len(active_orders)} active orders")
+        # Clear loading status when done - use clear_loading_status to fully reset
+        if is_initial_load:
+            # Mark that we've loaded once, then clear status
+            loading_status["has_loaded_once"] = True
+            clear_loading_status()
+        else:
+            # For subsequent loads, just ensure is_loading is false (don't show progress bar)
+            loading_status["is_loading"] = False
         
         logger.info(f"Returning {len(active_orders)} active orders and {len(gtt_orders)} GTT orders")
         return jsonify({

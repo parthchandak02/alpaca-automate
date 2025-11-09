@@ -182,3 +182,17 @@ pm2 save && pm2 startup                 # Auto-start on boot
 - WebSocket preferred; falls back to polling automatically
 - Test in paper trading mode first!
 - Live CSV files are gitignored (use `.example` files as templates)
+
+## Deployment
+
+**Quick summary:**
+- **Recommended**: Railway (free tier, always-on, easy GitHub integration)
+- **Cost**: **FREE** ✅ (estimated $0.66/month, Railway gives $5/month credit)
+- **Alternatives**: Render, Fly.io
+- **Not suitable**: GitHub Pages (static sites only)
+
+**Setup:**
+- Deploy backend and frontend as separate Railway services
+- Configure environment variables in Railway dashboard
+- Railway auto-detects Python/Node.js and handles deployment
+- Updates: Just push to GitHub (Railway auto-deploys)

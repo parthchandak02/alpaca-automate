@@ -245,6 +245,13 @@ class CSVFileHandler(FileSystemEventHandler):
         total_symbols = len(self.manager.ladders)
         total_orders = sum(len(ladder.orders) for ladder in self.manager.ladders.values())
         console.print(f"[green]✓[/green] Reloaded: [cyan]{total_symbols}[/cyan] symbols, [cyan]{total_orders}[/cyan] orders\n")
+        
+        # Clear loading status after CSV reload completes
+        try:
+            from .api_server import clear_loading_status
+            clear_loading_status()
+        except ImportError:
+            pass
 
 
 class GTTOrderManager:
@@ -276,10 +283,11 @@ class GTTOrderManager:
         logger.info(f"Loading orders from {csv_path}")
         
         # Try to update loading status if api_server is available
+        # Use force_show=True to show loading even after initial load (for CSV reloads)
         try:
             from .api_server import set_loading_status
             filename = os.path.basename(csv_path)
-            set_loading_status(True, f"Loading {filename}", 0, 0, "", f"Reading CSV file: {filename}")
+            set_loading_status(True, f"Loading {filename}", 0, 0, "", f"Reading CSV file: {filename}", clear_symbols=True, force_show=True)
         except ImportError:
             pass
         
@@ -297,7 +305,7 @@ class GTTOrderManager:
                 try:
                     from .api_server import set_loading_status
                     progress = row_idx + 1
-                    set_loading_status(True, f"Loading {os.path.basename(csv_path)}", progress, total_rows, symbol, f"Loading {symbol} ({company})... [{progress}/{total_rows}]")
+                    set_loading_status(True, f"Loading {os.path.basename(csv_path)}", progress, total_rows, symbol, f"Loading {symbol} ({company})... [{progress}/{total_rows}]", force_show=True)
                 except ImportError:
                     pass
                 
@@ -1275,7 +1283,9 @@ def main():
         pass
     
     def run_api_server():
-        api_port = int(os.getenv('PORT_API', '8080'))
+        # Railway provides PORT, but we prefer PORT_API for consistency
+        # Fallback to PORT if PORT_API not set (for Railway compatibility)
+        api_port = int(os.getenv('PORT_API') or os.getenv('PORT', '8080'))
         app.run(host='0.0.0.0', port=api_port, debug=False, use_reloader=False)
     
     api_thread = threading.Thread(target=run_api_server, daemon=True)
@@ -1294,7 +1304,7 @@ def main():
     if stocks_csv and os.path.exists(stocks_csv):
         try:
             from .api_server import set_loading_status
-            set_loading_status(True, "Loading stocks/ETFs", 0, 0, "", f"Loading from {os.path.basename(stocks_csv)}...")
+            set_loading_status(True, "Loading stocks/ETFs", 0, 0, "", f"Loading from {os.path.basename(stocks_csv)}...", clear_symbols=True, force_show=True)
         except ImportError:
             pass
         manager.load_orders_from_csv(stocks_csv)
@@ -1305,7 +1315,7 @@ def main():
     if crypto_csv and os.path.exists(crypto_csv):
         try:
             from .api_server import set_loading_status
-            set_loading_status(True, "Loading crypto", 0, 0, "", f"Loading from {os.path.basename(crypto_csv)}...")
+            set_loading_status(True, "Loading crypto", 0, 0, "", f"Loading from {os.path.basename(crypto_csv)}...", clear_symbols=True, force_show=True)
         except ImportError:
             pass
         console.print(f"[cyan]ℹ[/cyan] Loading crypto orders from [cyan]{os.path.basename(crypto_csv)}[/cyan]")
