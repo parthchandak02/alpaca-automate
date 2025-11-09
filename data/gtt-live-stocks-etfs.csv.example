@@ -1,0 +1,5 @@
+Company ,Account ,Amt 1,Price 1,Amt 2,Price 2,Amt 3,Price 3,Amt 4,Price 4,Amt 5,Price 5,Amt 6,Price 6,Amt 7,Price 7,Amt 8,Price 8,Recurring Amount,Notes
+iShares MSCI Taiwan ETF,EWT,1.00000,$64.61,2,$58.15,3,$52.00,5,$46.00,8,$41.00,12,$36.00,18,$32.00,27,$28.0000,100,
+ARK Israel Innovative Technology ETF,IZRL,1.00000,$28.84,2,$25.96,3,$23.00,5,$20.00,8,$18.00,12,$16.00,18,$14.00,27,$12.0000,100,
+iShares MSCI South Korea ETF,EWY,1.00000,$91.80,2,$82.62,3,$74.00,5,$66.00,8,$59.00,12,$53.00,18,$47.00,27,$42.0000,100,
+
