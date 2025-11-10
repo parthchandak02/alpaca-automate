@@ -185,39 +185,125 @@ pm2 save && pm2 startup                 # Auto-start on boot
 
 ## Deployment
 
-**Frontend**: Deploy to Cloudflare Pages → `alpaca.parthchandak.info`  
-**Backend**: Cloudflare Tunnel → `api-alpaca.parthchandak.info`
+Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automatic deployments on `git push`.
 
-### Quick Setup
+### Architecture
 
-1. **Cloudflare Pages (Frontend)**:
-   - Go to Cloudflare Dashboard → Workers & Pages → Pages
-   - Connect GitHub repo: `parthchandak02/alpaca-automate`
-   - Build command: `cd ui && npm install && npm run build`
-   - Build output: `ui`
-   - Add custom domain: `alpaca.parthchandak.info`
-   - Environment variables:
-     - `NEXT_PUBLIC_API_HOST` = `api-alpaca.parthchandak.info`
-     - `NEXT_PUBLIC_API_PORT` = `443`
+- **Frontend**: Cloudflare Pages (Next.js) → `your-domain.com`
+- **Backend**: Cloudflare Tunnel (Flask API) → `api-your-domain.com`
 
-2. **Cloudflare Tunnel (Backend)**:
+### Backend Setup (Cloudflare Tunnel)
+
+1. **Install cloudflared**:
+   ```bash
+   brew install cloudflare/cloudflare/cloudflared  # macOS
+   # or download from https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/
+   ```
+
+2. **Login and create tunnel**:
    ```bash
    cloudflared tunnel login
    cloudflared tunnel create alpaca-backend
-   cloudflared tunnel route dns alpaca-backend api-alpaca.parthchandak.info
+   cloudflared tunnel route dns alpaca-backend api-your-domain.com
    ```
-   Then update `~/.cloudflared/config.yml`:
+
+3. **Get tunnel ID**:
+   ```bash
+   cloudflared tunnel list
+   # Copy the tunnel ID (e.g., abc123-def456-...)
+   ```
+
+4. **Create config file** (`~/.cloudflared/config.yml`):
    ```yaml
    tunnel: alpaca-backend
    credentials-file: ~/.cloudflared/TUNNEL_ID.json
+   
    ingress:
-     - hostname: api-alpaca.parthchandak.info
+     - hostname: api-your-domain.com
        service: http://localhost:8080
      - service: http_status:404
    ```
-   Add to PM2 (already in `config/ecosystem.config.js`):
+   Replace `TUNNEL_ID` with your actual tunnel ID.
+
+5. **Test tunnel**:
+   ```bash
+   cloudflared tunnel run alpaca-backend
+   ```
+   Should see "Registered tunnel connection" messages.
+
+6. **Add to PM2** (already configured in `config/ecosystem.config.js`):
    ```bash
    pm2 start config/ecosystem.config.js
+   pm2 save
    ```
 
-**Auto-deploy**: Every `git push` to `main` automatically deploys frontend.
+### Frontend Setup (Cloudflare Pages)
+
+1. **Go to Cloudflare Dashboard**:
+   - Navigate to: **Workers & Pages** → **Pages**
+   - Click **Create application** → **Pages** → **Connect to Git**
+
+2. **Connect repository**:
+   - Authorize Cloudflare to access GitHub
+   - Select your repository
+
+3. **Configure build settings**:
+   - **Project name**: Your choice (e.g., `alpaca`)
+   - **Production branch**: `main`
+   - **Framework preset**: `Next.js` (auto-detected)
+   - **Build command**: `cd ui && npm install && npm run build`
+   - **Build output directory**: `ui` (or leave empty - auto-detects)
+   - **Root directory**: Leave empty
+
+4. **Add environment variables** (before deploying):
+   - Click **Environment variables**
+   - Add:
+     - Name: `NEXT_PUBLIC_API_HOST`
+     - Value: `api-your-domain.com` (your backend URL)
+     - Environment: Production
+   - Add:
+     - Name: `NEXT_PUBLIC_API_PORT`
+     - Value: `443`
+     - Environment: Production
+
+5. **Deploy**:
+   - Click **Save and Deploy**
+   - First build takes 3-5 minutes
+   - Watch build logs for errors
+
+6. **Add custom domain** (after deployment succeeds):
+   - Go to **Custom domains** tab
+   - Click **Set up a custom domain**
+   - Enter your domain (e.g., `your-domain.com`)
+   - Cloudflare auto-configures DNS and SSL
+
+### Testing
+
+```bash
+# Test backend API
+curl https://api-your-domain.com/api/status
+
+# Test frontend (visit in browser)
+open https://your-domain.com
+```
+
+### Auto-Deployment
+
+Every `git push` to `main` automatically triggers a new Cloudflare Pages deployment. Check **Deployments** tab in Cloudflare Pages dashboard to see build status.
+
+### Troubleshooting
+
+**Backend not accessible**:
+- Check tunnel is running: `pm2 logs cloudflare-tunnel`
+- Verify DNS: `dig api-your-domain.com`
+- Check tunnel status: `cloudflared tunnel info alpaca-backend`
+
+**Frontend build fails**:
+- Check build logs in Cloudflare Pages dashboard
+- Verify environment variables are set correctly
+- Ensure `ui/package.json` has build script
+
+**Frontend can't connect to backend**:
+- Verify `NEXT_PUBLIC_API_HOST` matches your backend URL
+- Check CORS settings in Flask backend (already configured)
+- Ensure backend tunnel is running
