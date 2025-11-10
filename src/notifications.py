@@ -379,14 +379,16 @@ class NotificationManager:
         else:
             description = f"Daily trading summary for {summary['date']}."
         
-        self.manager._send_email_notification(
-            title=f"📊 Daily Trading Summary - {summary['date']}",
-            description=description,
-            fields=fields,
-            footer_text=f"Alpaca Trading Bot • {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-        
-        logger.info(f"Daily summary sent for {summary['date']}")
+        try:
+            self.manager._send_email_notification(
+                title=f"📊 Daily Trading Summary - {summary['date']}",
+                description=description,
+                fields=fields,
+                footer_text=f"Alpaca Trading Bot • {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            logger.info(f"Daily summary sent for {summary['date']}")
+        except Exception as e:
+            logger.error(f"Failed to send daily summary email for {summary['date']}: {e}", exc_info=True)
     
     def send_weekly_summary(self, week_start: Optional[datetime] = None):
         """Send weekly summary email"""

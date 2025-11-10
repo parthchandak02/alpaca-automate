@@ -26,8 +26,8 @@ from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import LimitOrderRequest, GetOrdersRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
+from alpaca.trading.requests import LimitOrderRequest, GetOrdersRequest, GetAssetsRequest
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus, AssetClass
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockLatestQuoteRequest
 from alpaca.data.live import StockDataStream
@@ -115,6 +115,7 @@ class SymbolLadder:
     company: str
     orders: List[SequentialOrder] = field(default_factory=list)
     current_order_index: int = 0  # Which order in the sequence we're on
+    is_available_on_alpaca: bool = True  # Whether this asset is available/tradable on Alpaca
     
     def get_current_order(self) -> Optional[SequentialOrder]:
         """Get the current order we're waiting to trigger"""
@@ -311,11 +312,69 @@ class GTTOrderManager:
         
         self.ladders: Dict[str, SymbolLadder] = {}  # symbol -> ladder
         
+        # Cache for asset names from Alpaca (to avoid repeated API calls)
+        self._asset_name_cache: Dict[str, str] = {}
+        
         # Initialize notification manager
         self.notification_manager = NotificationManager(self)
         
         # Log which API URLs are being used
         logger.info(f"Initialized Alpaca clients - Paper: {paper}, Trading URL: {trading_url}, Data URL: {data_url}")
+    
+    def _get_asset_name_from_alpaca(self, symbol: str) -> Optional[str]:
+        """Fetch asset name/description from Alpaca API"""
+        # Check cache first
+        if symbol in self._asset_name_cache:
+            return self._asset_name_cache[symbol]
+        
+        try:
+            # Try to get asset by symbol
+            asset = self.trading_client.get_asset(symbol)
+            if asset and hasattr(asset, 'name') and asset.name:
+                name = asset.name.strip()
+                self._asset_name_cache[symbol] = name
+                logger.debug(f"Fetched asset name from Alpaca: {symbol} -> {name}")
+                return name
+        except APIError as e:
+            # Asset might not exist or API error - log but don't fail
+            logger.debug(f"Could not fetch asset name from Alpaca for {symbol}: {e}")
+        except Exception as e:
+            # Any other error - log but don't fail
+            logger.debug(f"Error fetching asset name from Alpaca for {symbol}: {e}")
+        
+    def _is_asset_available_on_alpaca(self, symbol: str) -> bool:
+        """Check if asset is available/tradable on Alpaca"""
+        # For crypto, try symbol with /USD suffix first (Alpaca format: BTC/USD)
+        # Also try the symbol as-is for stocks/ETFs
+        symbols_to_try = [symbol, f"{symbol}/USD"]
+        
+        for try_symbol in symbols_to_try:
+            try:
+                # Try to get asset by symbol
+                asset = self.trading_client.get_asset(try_symbol)
+                if asset:
+                    # Check if asset is tradable
+                    if hasattr(asset, 'tradable'):
+                        if asset.tradable:
+                            return True
+                    # If tradable attribute doesn't exist, check status
+                    elif hasattr(asset, 'status'):
+                        if asset.status == 'active':
+                            return True
+                    # If we got the asset object, assume it's available
+                    else:
+                        return True
+            except APIError as e:
+                # Asset doesn't exist or API error - try next format
+                logger.debug(f"Asset {try_symbol} not available on Alpaca: {e}")
+                continue
+            except Exception as e:
+                # Any other error - try next format
+                logger.debug(f"Error checking asset availability for {try_symbol}: {e}")
+                continue
+        
+        # If neither format worked, asset is not available
+        return False
     
     def _parse_price(self, price_str: str) -> Optional[float]:
         """Parse price string, handling $ and commas"""
@@ -348,8 +407,17 @@ class GTTOrderManager:
             
             for row_idx, row in enumerate(rows):
                 # Handle column names with spaces
-                company = row.get('Company ', row.get('Company', '')).strip()
+                csv_company = row.get('Company ', row.get('Company', '')).strip()
                 symbol = row.get('Account ', row.get('Account', '')).strip()
+                
+                # Try to get company name from Alpaca first, fall back to CSV
+                company = self._get_asset_name_from_alpaca(symbol) or csv_company or symbol
+                
+                # Check if asset is available on Alpaca
+                is_available = self._is_asset_available_on_alpaca(symbol)
+                
+                if not is_available:
+                    logger.warning(f"Symbol {symbol} ({company}) is not available/tradable on Alpaca")
                 
                 # Update loading status
                 try:
@@ -360,7 +428,7 @@ class GTTOrderManager:
                     pass
                 
                 if not symbol:
-                    logger.warning(f"Skipping row with no Account/symbol: {company}")
+                    logger.warning(f"Skipping row with no Account/symbol: {csv_company}")
                     continue
                 
                 # Parse all Amt/Price pairs (up to 8)
@@ -396,7 +464,7 @@ class GTTOrderManager:
                     continue
                 
                 # Create ladder for this symbol
-                ladder = SymbolLadder(symbol=symbol, company=company, orders=orders)
+                ladder = SymbolLadder(symbol=symbol, company=company, orders=orders, is_available_on_alpaca=is_available)
                 self.ladders[symbol] = ladder
                 
                 logger.info(f"Loaded {symbol} ({company}): {len(orders)} sequential orders")
@@ -629,7 +697,14 @@ class GTTOrderManager:
         email_to = os.getenv('EMAIL_TO')
         
         if not all([smtp_username, smtp_password, email_to]):
-            logger.debug("Email notification skipped: Missing email configuration")
+            missing = []
+            if not smtp_username:
+                missing.append("SMTP_USERNAME")
+            if not smtp_password:
+                missing.append("SMTP_PASSWORD")
+            if not email_to:
+                missing.append("EMAIL_TO")
+            logger.warning(f"Email notification skipped: Missing email configuration ({', '.join(missing)})")
             return
         
         try:
@@ -672,9 +747,9 @@ class GTTOrderManager:
                 server.login(smtp_username, smtp_password)
                 server.send_message(msg, to_addrs=recipients)  # Send to all recipients
             
-            logger.debug(f"Email notification sent to {len(recipients)} recipient(s): {title}")
+            logger.info(f"Email notification sent to {len(recipients)} recipient(s): {title}")
         except Exception as e:
-            logger.warning(f"Failed to send email notification: {e}")
+            logger.error(f"Failed to send email notification: {e}", exc_info=True)
     
     def _check_order_status(self, order_id: str) -> Optional[str]:
         """Check status of an order"""
@@ -1011,12 +1086,28 @@ class GTTOrderManager:
                             self._place_order(ladder, next_order, symbol)
                 
                 elif alpaca_status in ["cancelled", "expired", "rejected"]:
+                    # Log detailed information about why order expired/cancelled
+                    if alpaca_status == "expired":
+                        logger.warning(f"ORDER EXPIRED: {symbol} - Order {order_num} (ID: {order.order_id}) expired. "
+                                     f"This typically happens when a DAY order wasn't filled by market close. "
+                                     f"Limit price: ${order.price:.2f}, Amount: {order.amount}")
+                    elif alpaca_status == "rejected":
+                        logger.warning(f"ORDER REJECTED: {symbol} - Order {order_num} (ID: {order.order_id}) was rejected. "
+                                     f"Limit price: ${order.price:.2f}, Amount: {order.amount}")
+                    else:
+                        logger.warning(f"ORDER CANCELLED: {symbol} - Order {order_num} (ID: {order.order_id}) was cancelled. "
+                                     f"Limit price: ${order.price:.2f}, Amount: {order.amount}")
+                    
                     # Reset order to pending so it can be retried (if it's the current order)
                     if idx == ladder.current_order_index:
-                        logger.warning(f"ORDER {alpaca_status.upper()}: {symbol} - Order {order_num}. "
-                                     f"Will retry when trigger condition is met again.")
+                        logger.info(f"Resetting {symbol} - Order {order_num} to pending. "
+                                  f"It will be re-placed when trigger condition is met again.")
                         order.status = "pending"
                         order.order_id = None  # Clear order ID so we can place a new one
+                    else:
+                        # For non-current orders, log but don't auto-reset (user can manually re-instate)
+                        logger.info(f"Order {order_num} for {symbol} expired/cancelled but is not the current order. "
+                                  f"Use re-instate API to manually reset if needed.")
     
     def start_monitoring(self):
         """Start WebSocket monitoring for all symbols with smart batching to handle symbol limits"""
@@ -1163,6 +1254,8 @@ class GTTOrderManager:
                 while stream_running.is_set() and iteration < max_iterations:
                     time.sleep(5)  # Check order fills every 5 seconds
                     self._monitor_order_fills()
+                    # Also check triggers periodically in case WebSocket isn't receiving quotes
+                    self._check_triggers_from_prices()
                     iteration += 1
                 
                 # Check if WebSocket failed during monitoring
@@ -1175,6 +1268,8 @@ class GTTOrderManager:
                     while stream_running.is_set():
                         time.sleep(5)
                         self._monitor_order_fills()
+                        # Also check triggers periodically in case WebSocket isn't receiving quotes
+                        self._check_triggers_from_prices()
             else:
                 # WebSocket subscription failed - use polling for all symbols
                 logger.info("WebSocket subscription failed. Using polling mode for all symbols.")
@@ -1233,6 +1328,41 @@ class GTTOrderManager:
                 "next_open": None,
                 "next_close": None,
             }
+    
+    def _check_triggers_from_prices(self):
+        """Check triggers using current prices (fallback when WebSocket isn't receiving quotes)"""
+        try:
+            prices = self.get_current_prices()
+            if not prices:
+                return
+            
+            triggered_count = 0
+            for symbol, price in prices.items():
+                if symbol not in self.ladders:
+                    continue
+                
+                ladder = self.ladders[symbol]
+                current_order = ladder.get_current_order()
+                
+                if not current_order:
+                    continue
+                
+                # Only first order waits for trigger condition
+                if current_order.status == "pending" and ladder.current_order_index == 0:
+                    if current_order.should_trigger(price):
+                        triggered_count += 1
+                        logger.info(f"TRIGGER (fallback): {symbol} price ${price:.2f} <= trigger ${current_order.price:.2f}")
+                        self._place_order(ladder, current_order, symbol)
+                elif current_order.status == "pending" and ladder.current_order_index > 0:
+                    # Subsequent orders: auto-place immediately
+                    triggered_count += 1
+                    logger.info(f"AUTO-PLACE (fallback): {symbol} - Order {ladder.current_order_index + 1}")
+                    self._place_order(ladder, current_order, symbol)
+            
+            if triggered_count > 0:
+                logger.debug(f"Checked triggers: {triggered_count} orders triggered")
+        except Exception as e:
+            logger.error(f"Error checking triggers from prices: {e}", exc_info=True)
     
     def check_triggers_polling(self):
         """Fallback: Poll prices and check triggers (if WebSocket unavailable)"""
@@ -1439,12 +1569,14 @@ def main():
         scheduler = BackgroundScheduler(timezone=pytz.timezone('America/New_York'))
         
         # Daily summary at 9:30 AM EST (market open)
+        # misfire_grace_time: If job is missed, allow it to run up to 1 hour late
         scheduler.add_job(
             manager.notification_manager.send_daily_summary,
             trigger=CronTrigger(hour=9, minute=30, timezone=pytz.timezone('America/New_York')),
             id='daily_summary',
             name='Daily Trading Summary',
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=3600  # 1 hour grace period for missed jobs
         )
         
         # Weekly summary on Monday at 9:00 AM EST
@@ -1453,7 +1585,8 @@ def main():
             trigger=CronTrigger(day_of_week='mon', hour=9, minute=0, timezone=pytz.timezone('America/New_York')),
             id='weekly_summary',
             name='Weekly Trading Summary',
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=3600  # 1 hour grace period for missed jobs
         )
         
         scheduler.start()

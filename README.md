@@ -2,218 +2,222 @@
 
 GTT-style sequential conditional orders for Alpaca. Automatically places limit orders in sequence when trigger prices are met, without locking buying power until each order is triggered.
 
+## Features
+
+- **Sequential Order Execution**: Automatically places orders in sequence when trigger prices are met
+- **Real-time Price Monitoring**: WebSocket-based price updates with polling fallback
+- **Web Dashboard**: Next.js UI for monitoring orders, prices, and account status
+- **Email Notifications**: Configurable email alerts for order status changes
+- **Password Protection**: Secure authentication with JWT tokens
+- **Chart Visualization**: Historical price charts for each symbol
+- **Auto-reload**: CSV changes automatically reload orders (no restart needed)
+
 ## Quick Start
 
-1. **Install dependencies**:
+### 1. Install Dependencies
+
 ```bash
+# Backend dependencies
 pip install -r requirements.txt
+
+# Frontend dependencies
 cd ui && npm install && cd ..
 ```
 
-2. **Configure**:
+### 2. Configure Environment
+
 ```bash
 cp .env.example .env
-# Edit .env with your Alpaca API keys
+# Edit .env with your configuration (see Configuration section)
 ```
 
-3. **Setup CSV files**:
+### 3. Setup CSV Files
+
 ```bash
 cp data/gtt-live-stocks-etfs.csv.example data/gtt-live-stocks-etfs.csv
 cp data/gtt-live-crypto.csv.example data/gtt-live-crypto.csv
 # Edit CSV files with your orders
 ```
 
-4. **Start with PM2**:
+### 4. Setup Authentication
+
+Generate a password hash:
+
+```bash
+python scripts/setup_auth.py
+# Follow prompts to set your password
+# Add generated hash to .env file
+```
+
+### 5. Start Application
+
 ```bash
 pm2 start config/ecosystem.config.js
-pm2 logs gtt-app
+pm2 logs gtt-backend  # View backend logs
 ```
 
 UI available at `http://localhost:3000` (configurable via `PORT_UI` in `.env`)
 
-## Project Structure
-
-```
-alpaca-trading/
-├── src/                    # Core Python code
-│   ├── gtt_monitor.py     # Main monitor: loads orders, watches prices, places orders
-│   ├── api_server.py      # Flask API: exposes data to web UI
-│   └── templates/         # Email templates
-│       └── email_template.html  # HTML email template (editable)
-├── ui/                     # Next.js web interface
-│   ├── app/page.tsx       # Main UI component
-│   └── components/        # Reusable UI components
-├── scripts/                # Utility scripts
-│   ├── manual_place.py    # Manually place a specific order
-│   ├── simulate_fill.py   # Test: simulate order fill
-│   └── place_test_orders.py
-├── config/                 # Configuration
-│   ├── ecosystem.config.js # PM2 config
-│   └── start.sh           # Startup script (starts Python + UI)
-├── data/                   # CSV order files
-│   ├── gtt-live-stocks-etfs.csv      # Your stock orders (gitignored)
-│   ├── gtt-live-crypto.csv           # Your crypto orders (gitignored)
-│   └── *.csv.example      # Example templates
-└── logs/                   # Application logs
-```
-
-## How It Works
-
-### High-Level Flow
-
-1. **Load Orders**: Reads CSV files (`gtt-live-stocks-etfs.csv`, `gtt-live-crypto.csv`)
-   - Each row = one symbol with up to 8 sequential orders
-   - Format: `Company, Symbol, Amt1, Price1, Amt2, Price2, ...`
-
-2. **Monitor Prices**: 
-   - **WebSocket mode**: Real-time price updates (preferred)
-   - **Polling mode**: Falls back if WebSocket fails (checks every 60s)
-
-3. **Trigger Logic**:
-   - First order: Waits for price ≤ trigger price
-   - Subsequent orders: Auto-placed immediately after previous order fills
-
-4. **Order Execution**:
-   ```
-   Price hits trigger → Place Order 1 → Wait for fill → 
-   Order 1 fills → Place Order 2 → Wait for fill → ...
-   ```
-
-5. **Fill Detection**:
-   - Checks order status every 5 seconds (WebSocket) or 3 minutes (Polling)
-   - When order status = "filled" → advances to next order automatically
-
-### Key Components
-
-**`src/gtt_monitor.py`**:
-- `GTTOrderManager`: Manages order ladders, price monitoring, order placement
-- `SymbolLadder`: Tracks sequential orders for one symbol
-- `CSVFileHandler`: Auto-reloads orders when CSV files change (watchdog)
-- `main()`: Entry point - starts API server, loads CSVs, begins monitoring
-
-**`src/api_server.py`**:
-- Flask REST API endpoints:
-  - `/api/orders` - All orders (GTT + active Alpaca orders)
-  - `/api/prices` - Current market prices
-  - `/api/account` - Account info (buying power, equity)
-  - `/api/status` - Loading progress
-  - `/api/force-fill-order` - Force fill any pending order (bypasses sequential logic)
-  - `/api/simulate-fill` - Force place current order (testing)
-
-**`ui/app/page.tsx`**:
-- Two tabs: "Orders" (Active/Completed/Cancelled) and "GTT" (conditional orders)
-- Real-time updates every 5 seconds
-- Shows current prices, order status, account summary
-- Force Fill button: Manually fill any pending order (useful for testing)
-- Status icons: Trading mode (paper/live), sync status, market status with hover tooltips
-
-## CSV Format
-
-```csv
-Company ,Account ,Amt 1,Price 1,Amt 2,Price 2,...,Amt 8,Price 8,Recurring Amount,Notes
-iShares MSCI Taiwan ETF,EWT,1.0,$64.61,2,$58.15,3,$52.00,5,$46.00,8,$41.00,12,$36.00,18,$32.00,27,$28.00,100,
-```
-
-- `Company`: Display name
-- `Account`: **Symbol** (e.g., "EWT", "ETH")
-- `Amt N` / `Price N`: Order amount and trigger price
-- Prices can include `$` and commas: `"$3,398.73"` or `64.61`
-
 ## Configuration
 
-Environment variables (`.env`):
-- `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`: Required
-- `ALPACA_PAPER=true`: Paper trading mode
-- `PORT_API=8080`: Flask API port
-- `PORT_UI=3000`: Next.js UI port
-- `POLL_INTERVAL_SECONDS=60`: Polling interval (fallback mode)
-- `DISCORD_WEBHOOK_URL`: Optional - Discord webhook for notifications
-- `EMAIL_NOTIFICATIONS_ENABLED=true`: Optional - Enable email notifications
-- `SMTP_SERVER=smtp.gmail.com`: Optional - SMTP server (default: Gmail)
-- `SMTP_PORT=587`: Optional - SMTP port (default: 587)
-- `SMTP_USERNAME=your-email@gmail.com`: Optional - Your email address
-- `SMTP_PASSWORD=your-app-password`: Optional - Gmail App Password (not regular password)
-- `EMAIL_TO=recipient@example.com`: Optional - Recipient email address (comma-separated for multiple recipients)
+### Required Environment Variables
 
-### Email Notifications Setup (Gmail Example)
+Create a `.env` file with the following:
 
-1. **Enable 2-Factor Authentication** on your Gmail account
-2. **Generate an App Password**:
+```env
+# Alpaca API (Required)
+ALPACA_API_KEY=your_api_key
+ALPACA_SECRET_KEY=your_secret_key
+ALPACA_PAPER=true  # Set to false for live trading
+
+# Authentication (Required)
+APP_PASSWORD_HASH=your_bcrypt_hash  # Generate with scripts/setup_auth.py
+JWT_SECRET_KEY=your_jwt_secret      # Generate with scripts/setup_auth.py
+
+# Ports (Optional)
+PORT_API=8080
+PORT_UI=3000
+```
+
+### Optional Configuration
+
+```env
+# Email Notifications
+EMAIL_NOTIFICATIONS_ENABLED=true
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your-email@gmail.com
+SMTP_PASSWORD=your-app-password  # Gmail App Password, not regular password
+EMAIL_TO=recipient@example.com  # Comma-separated for multiple recipients
+
+# Polling (Fallback mode)
+POLL_INTERVAL_SECONDS=60
+
+# Discord Webhook (Optional)
+DISCORD_WEBHOOK_URL=your_webhook_url
+```
+
+### Email Setup (Gmail Example)
+
+1. Enable 2-Factor Authentication on your Gmail account
+2. Generate an App Password:
    - Go to Google Account → Security → 2-Step Verification → App passwords
    - Create a new app password for "Mail"
    - Copy the 16-character password
-3. **Add to `.env`**:
-   ```bash
+3. Add to `.env`:
+   ```env
    EMAIL_NOTIFICATIONS_ENABLED=true
    SMTP_SERVER=smtp.gmail.com
    SMTP_PORT=587
    SMTP_USERNAME=your-email@gmail.com
    SMTP_PASSWORD=your-16-char-app-password
-   EMAIL_TO=recipient1@example.com,recipient2@example.com
+   EMAIL_TO=recipient@example.com
    ```
-   **Note**: For multiple recipients, separate email addresses with commas (no spaces needed).
-4. **Restart PM2**: `pm2 restart gtt-app --update-env`
 
-**Note**: Email notifications are sent for **all order status changes** including: placed, filled, partially filled, cancelled, expired, rejected, and more. They work alongside Discord notifications (both can be enabled simultaneously).
+## CSV Format
 
-**Customizing Email Templates**: Edit `src/templates/email_template.html` to customize the email design. The template uses simple variable replacement (`{{title}}`, `{{description}}`, etc.) and supports HTML with inline CSS.
+Orders are defined in CSV files (`data/gtt-live-stocks-etfs.csv`, `data/gtt-live-crypto.csv`):
 
-## PM2 Commands
-
-```bash
-pm2 start config/ecosystem.config.js    # Start
-pm2 logs gtt-app                        # View logs
-pm2 status                              # Check status
-pm2 restart gtt-app                     # Restart
-pm2 stop gtt-app                        # Stop
-pm2 save && pm2 startup                 # Auto-start on boot
+```csv
+Company,Account,Amt 1,Price 1,Amt 2,Price 2,...,Amt 8,Price 8,Recurring Amount,Notes
+iShares MSCI Taiwan ETF,EWT,1.0,$64.61,2,$58.15,3,$52.00,5,$46.00,8,$41.00,12,$36.00,18,$32.00,27,$28.00,100,
 ```
 
-## Testing Scripts
+- `Company`: Display name (fetched from Alpaca if available)
+- `Account`: Symbol (e.g., "EWT", "ETH")
+- `Amt N` / `Price N`: Order amount and trigger price (up to 8 orders)
+- Prices can include `$` and commas: `"$3,398.73"` or `64.61`
 
-- `scripts/manual_place.py`: Place a specific order manually
-- `scripts/simulate_fill.py`: Simulate order fill (advances to next order)
-- `scripts/place_test_orders.py`: Place test orders
+## How It Works
 
-## Notes
+### Order Execution Flow
 
-- Orders only lock buying power when actually placed (after trigger)
-- CSV changes auto-reload (no restart needed)
-- WebSocket preferred; falls back to polling automatically
-- Test in paper trading mode first!
-- Live CSV files are gitignored (use `.example` files as templates)
-
-## Deployment
-
-Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automatic deployments on `git push`.
+1. **Load Orders**: Reads CSV files and creates order ladders for each symbol
+2. **Monitor Prices**: 
+   - **WebSocket mode**: Real-time price updates (preferred)
+   - **Polling mode**: Falls back if WebSocket fails (checks every 60s)
+3. **Trigger Logic**:
+   - First order: Waits for price ≤ trigger price
+   - Subsequent orders: Auto-placed immediately after previous order fills
+4. **Order Placement**: When trigger is met, places limit order via Alpaca API
+5. **Fill Detection**: Checks order status every 5 seconds, advances to next order when filled
 
 ### Architecture
 
-- **Frontend**: Cloudflare Pages (Next.js) → `your-domain.com`
-- **Backend**: Cloudflare Tunnel (Flask API) → `api-your-domain.com`
+- **Backend** (`src/gtt_monitor.py`): Core order management and monitoring
+- **API Server** (`src/api_server.py`): Flask REST API for frontend
+- **Frontend** (`ui/`): Next.js web interface with real-time updates
+- **Authentication**: Password-based JWT authentication with httpOnly cookies
 
-### Backend Setup (Cloudflare Tunnel)
+### Key Components
 
-1. **Install cloudflared**:
+**GTTOrderManager**:
+- Manages order ladders per symbol
+- Monitors prices via WebSocket/polling
+- Places orders when triggers are met
+- Tracks order fills and advances sequence
+
+**API Endpoints**:
+- `GET /api/orders` - All orders (GTT + active Alpaca orders)
+- `GET /api/prices` - Current market prices
+- `GET /api/account` - Account info (buying power, equity)
+- `GET /api/chart/<symbol>` - Historical price data
+- `POST /api/auth/login` - Login with password
+- `POST /api/force-fill-order` - Manually fill any pending order
+
+## Authentication
+
+### Setup
+
+1. Generate password hash:
    ```bash
-   brew install cloudflare/cloudflare/cloudflared  # macOS
-   # or download from https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/
+   python scripts/setup_auth.py
    ```
 
-2. **Login and create tunnel**:
+2. Add to `.env`:
+   ```env
+   APP_PASSWORD_HASH=<generated_hash>
+   JWT_SECRET_KEY=<generated_secret>
+   ```
+
+3. Restart backend:
+   ```bash
+   pm2 restart gtt-backend
+   ```
+
+### How It Works
+
+- Password stored as bcrypt hash in `.env` (never plain text)
+- Frontend login page at `/login`
+- JWT tokens stored in httpOnly cookies (30-day expiration)
+- All API endpoints protected except `/api/auth/login` and `/api/status`
+- Frontend middleware redirects unauthenticated users to login
+
+### Security Features
+
+- Bcrypt password hashing
+- HttpOnly cookies (prevents XSS)
+- HTTPS-only cookies in production
+- Token expiration (30 days, configurable)
+- Session tracking (IP and user agent)
+
+## Deployment
+
+### Backend (Cloudflare Tunnel)
+
+1. Install cloudflared:
+   ```bash
+   brew install cloudflare/cloudflare/cloudflared  # macOS
+   ```
+
+2. Login and create tunnel:
    ```bash
    cloudflared tunnel login
    cloudflared tunnel create your-app-backend
    cloudflared tunnel route dns your-app-backend api-your-domain.com
    ```
 
-3. **Get tunnel ID**:
-   ```bash
-   cloudflared tunnel list
-   # Copy the tunnel ID (e.g., abc123-def456-...)
-   ```
-
-4. **Create config file** (`~/.cloudflared/config.yml`):
+3. Create config (`~/.cloudflared/config.yml`):
    ```yaml
    tunnel: your-app-backend
    credentials-file: ~/.cloudflared/TUNNEL_ID.json
@@ -223,222 +227,129 @@ Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automa
        service: http://localhost:8080
      - service: http_status:404
    ```
-   Replace `TUNNEL_ID` with your actual tunnel ID and `your-app-backend` with your tunnel name.
 
-5. **Test tunnel**:
+4. Add to PM2 (update `config/ecosystem.config.js`):
    ```bash
-   cloudflared tunnel run your-app-backend
-   ```
-   Should see "Registered tunnel connection" messages.
-
-6. **Add to PM2** (update `config/ecosystem.config.js` if needed):
-   ```bash
-   # Update tunnel name in config/ecosystem.config.js to match your tunnel name
    pm2 start config/ecosystem.config.js
    pm2 save
    ```
 
-### Frontend Setup (Cloudflare Pages)
+### Frontend (Cloudflare Pages)
 
-1. **Go to Cloudflare Dashboard**:
-   - Navigate to: **Workers & Pages** → **Pages**
-   - Click **Create application** → **Pages** → **Connect to Git**
-
-2. **Connect repository**:
-   - Authorize Cloudflare to access GitHub
-   - Select your repository
-
-3. **Configure build settings**:
-   - **Project name**: Your choice (e.g., `my-app` or `trading-app`)
-   - **Production branch**: `main`
-   - **Framework preset**: `Next.js` (auto-detected)
-   - **Build command**: `cd ui && npm install && npm run build`
-   - **Build output directory**: Leave empty (auto-detects for Next.js)
-   - **Root directory**: Leave empty
-
-4. **Add environment variables** (before deploying):
-   - Click **Environment variables**
-   - Add:
-     - Name: `NEXT_PUBLIC_API_HOST`
-     - Value: `api-your-domain.com` (your backend URL)
-     - Environment: Production
-   - Add:
-     - Name: `NEXT_PUBLIC_API_PORT`
-     - Value: `443`
-     - Environment: Production
-
-5. **Deploy**:
-   - Click **Save and Deploy**
-   - First build takes 3-5 minutes
-   - Watch build logs for errors
-
-6. **Add custom domain** (after deployment succeeds):
-   - Go to **Custom domains** tab
-   - Click **Set up a custom domain**
-   - Enter your domain (e.g., `your-domain.com`)
-   - Cloudflare auto-configures DNS and SSL
-   - Status will show "Initializing" → "Active" (can take up to 48 hours)
-
-### Custom Domains Setup
-
-Both frontend and backend need custom domains configured. Follow these steps:
-
-#### Frontend Custom Domain (Cloudflare Pages)
-
-1. **After deployment succeeds**:
-   - Go to Cloudflare Dashboard → **Workers & Pages** → Your project → **Custom domains** tab
-   - Click **Set up a custom domain**
-   - Enter your domain (e.g., `your-domain.com` or `app.your-domain.com`)
-   - Click **Continue**
-
-2. **DNS Configuration**:
-   - Cloudflare automatically creates DNS records (CNAME)
-   - Status will show "Initializing" → "Active"
-   - **DNS propagation**: Can take up to 48 hours, but usually works within minutes
-
-3. **Verify**:
-   ```bash
-   # Check DNS propagation
-   dig your-domain.com
-   
-   # Test HTTPS access
-   curl -I https://your-domain.com
-   ```
-
-#### Backend Custom Domain (Cloudflare Tunnel)
-
-The backend custom domain is configured when you create the tunnel DNS route:
-
-```bash
-cloudflared tunnel route dns your-app-backend api-your-domain.com
-```
-
-This command automatically:
-- Creates a CNAME DNS record pointing `api-your-domain.com` to your tunnel
-- Configures SSL/TLS automatically
-- Sets up routing to your local backend
-
-**Verify backend DNS**:
-```bash
-# Check DNS record exists
-dig api-your-domain.com
-
-# Should show CNAME pointing to tunnel hostname
-# Test backend API
-curl https://api-your-domain.com/api/status
-```
-
-**If DNS route wasn't created**:
-```bash
-# Create it manually
-cloudflared tunnel route dns your-app-backend api-your-domain.com
-
-# Or verify tunnel is running
-cloudflared tunnel list
-pm2 logs cloudflare-tunnel
-```
-
-#### Custom Domain Status
-
-**Frontend (Pages)**:
-- Status visible in Cloudflare Dashboard → Pages → Custom domains tab
-- "Initializing" → "Active" (usually 5-30 minutes)
-- If stuck, check DNS records in Cloudflare DNS dashboard
-
-**Backend (Tunnel)**:
-- DNS route created automatically via `cloudflared tunnel route dns`
-- Check DNS: `dig api-your-domain.com` (should show CNAME)
-- Check tunnel: `cloudflared tunnel info your-app-backend`
-- Verify tunnel is running: `pm2 status cloudflare-tunnel`
-
-#### Troubleshooting Custom Domains
-
-**Frontend domain not working**:
-- Wait 5-30 minutes for DNS propagation
-- Check DNS records in Cloudflare Dashboard → DNS
-- Verify domain is added in Pages → Custom domains tab
-- Check deployment is active: `wrangler pages deployment list --project-name=your-project`
-
-**Backend domain not working**:
-- Verify tunnel DNS route: `cloudflared tunnel route dns list`
-- Check tunnel is running: `pm2 logs cloudflare-tunnel`
-- Verify DNS record exists: `dig api-your-domain.com`
-- Test tunnel directly: `curl https://api-your-domain.com/api/status`
-
-**Both domains working but frontend can't reach backend**:
-- Verify `NEXT_PUBLIC_API_HOST` environment variable matches backend domain
-- Check CORS settings in Flask backend (should allow your frontend domain)
-- Ensure backend tunnel is running and accessible
-
-### Testing
-
-```bash
-# Test backend API
-curl https://api-your-domain.com/api/status
-
-# Test frontend (visit in browser)
-open https://your-domain.com
-```
+1. Go to Cloudflare Dashboard → Workers & Pages → Pages → Create application
+2. Connect your GitHub repository
+3. Configure build:
+   - Framework preset: `Next.js`
+   - Build command: `cd ui && npm install && npm run build`
+   - Root directory: Leave empty
+4. Add environment variables:
+   - `NEXT_PUBLIC_API_HOST`: `api-your-domain.com`
+   - `NEXT_PUBLIC_API_PORT`: `443`
+5. Deploy and add custom domain
 
 ### Auto-Deployment
 
-Every `git push` to `main` automatically triggers a new Cloudflare Pages deployment. Check **Deployments** tab in Cloudflare Pages dashboard to see build status.
+Every `git push` to `main` automatically triggers a new Cloudflare Pages deployment.
 
-### Using Wrangler CLI (Terminal Management)
+## PM2 Commands
 
-**Setup** (one-time):
-1. Get API token from: https://dash.cloudflare.com/profile/api-tokens
-   - Use "Edit Cloudflare Workers" template
-   - Copy token and add to `.env`: `CLOUDFLARE_API_TOKEN=your-token`
-   - Add account ID: `CLOUDFLARE_ACCOUNT_ID=your-account-id`
-
-**Quick Start**:
 ```bash
-# Load Cloudflare token from .env
-export $(grep CLOUDFLARE_API_TOKEN .env | xargs)
-
-# Check deployment status
-wrangler pages deployment list --project-name=your-project
-
-# View logs
-wrangler pages deployment tail --project-name=your-project
-
-# List all Pages projects
-wrangler pages project list
-
-# Trigger manual deployment
-curl -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/your-project/deployments" \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"branch":"main"}'
+pm2 start config/ecosystem.config.js    # Start
+pm2 logs gtt-backend                     # View backend logs
+pm2 logs gtt-frontend                    # View frontend logs
+pm2 status                              # Check status
+pm2 restart gtt-backend                 # Restart backend
+pm2 restart gtt-frontend                # Restart frontend
+pm2 stop gtt-backend                    # Stop backend
+pm2 save && pm2 startup                 # Auto-start on boot
 ```
 
-**Note**: Token is stored in `.env` (not in `~/.zshrc` for security). Export it per-session when needed.
+## Project Structure
 
-**Common Commands**:
-```bash
-# Check tunnel status
-cloudflared tunnel list
-cloudflared tunnel info your-app-backend
-
-# Check PM2 processes
-pm2 status
-pm2 logs cloudflare-tunnel
+```
+alpaca-trading/
+├── src/                    # Core Python code
+│   ├── gtt_monitor.py     # Main monitor: loads orders, watches prices, places orders
+│   ├── api_server.py      # Flask API: exposes data to web UI
+│   └── notifications.py   # Email notification manager
+├── ui/                     # Next.js web interface
+│   ├── app/
+│   │   ├── page.tsx       # Main UI component
+│   │   └── login/         # Login page
+│   └── components/         # Reusable UI components
+├── scripts/                # Utility scripts
+│   ├── setup_auth.py      # Generate password hash
+│   └── send_notifications.py  # Manual notification triggers
+├── config/                 # Configuration
+│   └── ecosystem.config.js # PM2 config
+├── data/                   # CSV order files (gitignored)
+│   ├── gtt-live-stocks-etfs.csv
+│   └── gtt-live-crypto.csv
+└── logs/                   # Application logs
 ```
 
-### Troubleshooting
+## Features
 
-**Backend not accessible**:
-- Check tunnel is running: `pm2 logs cloudflare-tunnel`
-- Verify DNS: `dig api-your-domain.com`
-- Check tunnel status: `cloudflared tunnel info your-app-backend`
+### Real-time Updates
+- WebSocket connection for live price updates
+- Automatic fallback to polling if WebSocket fails
+- Frontend updates every 5 seconds
 
-**Frontend build fails**:
-- Check build logs in Cloudflare Pages dashboard
-- Verify environment variables are set correctly
-- Ensure `ui/package.json` has build script
+### Order Management
+- Sequential order execution (one at a time)
+- Automatic fill detection and advancement
+- Manual force-fill option for testing
+- Re-instate cancelled/expired orders
 
-**Frontend can't connect to backend**:
-- Verify `NEXT_PUBLIC_API_HOST` matches your backend URL
-- Check CORS settings in Flask backend (already configured)
-- Ensure backend tunnel is running
+### Charts
+- Historical price charts (1D, 1W, 1M, 3M, 6M, 1Y, MAX)
+- Lazy loading (only loads when accordion is expanded)
+- Real-time updates for 1D timeframe
+
+### Notifications
+- Email notifications for all order status changes
+- Daily and weekly summary emails
+- Configurable SMTP settings
+
+## Security Notes
+
+- **Never commit `.env` file** to version control
+- Use strong passwords for authentication
+- Enable HTTPS in production
+- Keep API keys secure
+- Test in paper trading mode first!
+
+## Troubleshooting
+
+### Backend not starting
+- Check logs: `pm2 logs gtt-backend`
+- Verify dependencies: `pip install -r requirements.txt`
+- Check `.env` file exists and has required variables
+
+### Frontend can't connect to backend
+- Verify `NEXT_PUBLIC_API_HOST` matches backend URL
+- Check backend is running: `pm2 status`
+- Verify CORS settings in `api_server.py`
+
+### Authentication issues
+- Ensure `APP_PASSWORD_HASH` is set in `.env`
+- Restart backend after adding password hash
+- Clear browser cookies if token is invalid
+
+### Orders not executing
+- Check market is open (orders only execute during market hours)
+- Verify trigger prices are reasonable
+- Check Alpaca account has sufficient buying power
+- Review logs for error messages
+
+## Notes
+
+- Orders only lock buying power when actually placed (after trigger)
+- CSV changes auto-reload (no restart needed)
+- WebSocket preferred; falls back to polling automatically
+- Test in paper trading mode first!
+- Live CSV files are gitignored (use `.example` files as templates)
+
+## License
+
+See LICENSE file for details.

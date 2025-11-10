@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useMemo } from "react"
+import { useRouter } from "next/navigation"
 import useSWR, { mutate } from "swr"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,8 +10,10 @@ import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { DataTable, ColumnHeaderWithDropdown } from "@/components/data-table"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { StockChart } from "@/components/stock-chart"
 import { ColumnDef } from "@tanstack/react-table"
-import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock } from "lucide-react"
+import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw } from "lucide-react"
 
 // Reusable Icon Tooltip Component
 interface IconTooltipProps {
@@ -65,10 +68,22 @@ function ForceFillButton({
   const [loading, setLoading] = useState(false)
   const apiPort = process.env.NEXT_PUBLIC_API_PORT || '8080'
   // Use NEXT_PUBLIC_API_HOST if set (for production), otherwise detect from window (for local dev)
-  const apiHost = process.env.NEXT_PUBLIC_API_HOST || 
-    (typeof window !== 'undefined' ? window.location.hostname : 'localhost')
+  let apiHost = process.env.NEXT_PUBLIC_API_HOST
+  if (!apiHost && typeof window !== 'undefined') {
+    // If on production domain (not localhost), use api- subdomain
+    const hostname = window.location.hostname
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      // Extract base domain and prepend 'api-'
+      // e.g., alpaca.parthchandak.info -> api-alpaca.parthchandak.info
+      apiHost = `api-${hostname}`
+    } else {
+      apiHost = 'localhost'
+    }
+  } else if (!apiHost) {
+    apiHost = 'localhost'
+  }
   // Use https in production if API host is provided, otherwise http for local dev
-  const protocol = process.env.NEXT_PUBLIC_API_HOST ? 'https' : 'http'
+  const protocol = (apiHost && apiHost !== 'localhost') ? 'https' : 'http'
   // Don't append port for standard HTTPS (443) or HTTP (80)
   const portSuffix = (apiPort === '443' || apiPort === '80') ? '' : `:${apiPort}`
   const apiBaseUrl = `${protocol}://${apiHost}${portSuffix}`
@@ -82,6 +97,7 @@ function ForceFillButton({
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({ symbol, order_index: orderIndex }),
       })
 
@@ -180,6 +196,7 @@ interface GTTOrder {
   order_id: string | null
   current_order_index: number
   is_current: boolean
+  is_available_on_alpaca?: boolean
 }
 
 interface AccountInfo {
@@ -201,36 +218,85 @@ interface MarketStatus {
 }
 
 export default function OrdersPage() {
-  // Get API base URL
+  const router = useRouter()
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  
+  // Get API base URL (needed for auth check and data fetching)
   const apiPort = process.env.NEXT_PUBLIC_API_PORT || '8080'
   // Use NEXT_PUBLIC_API_HOST if set (for production), otherwise detect from window (for local dev)
-  const apiHost = process.env.NEXT_PUBLIC_API_HOST || 
-    (typeof window !== 'undefined' ? window.location.hostname : 'localhost')
+  let apiHost = process.env.NEXT_PUBLIC_API_HOST
+  if (!apiHost && typeof window !== 'undefined') {
+    // If on production domain (not localhost), use api- subdomain
+    const hostname = window.location.hostname
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      // Extract base domain and prepend 'api-'
+      // e.g., alpaca.parthchandak.info -> api-alpaca.parthchandak.info
+      apiHost = `api-${hostname}`
+    } else {
+      apiHost = 'localhost'
+    }
+  } else if (!apiHost) {
+    apiHost = 'localhost'
+  }
   // Use https in production if API host is provided, otherwise http for local dev
-  const protocol = process.env.NEXT_PUBLIC_API_HOST ? 'https' : 'http'
+  const protocol = (apiHost && apiHost !== 'localhost') ? 'https' : 'http'
   // Don't append port for standard HTTPS (443) or HTTP (80)
   const portSuffix = (apiPort === '443' || apiPort === '80') ? '' : `:${apiPort}`
   const apiBaseUrl = `${protocol}://${apiHost}${portSuffix}`
   
+  // Check authentication on mount - protect page client-side
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/auth/verify`, {
+          credentials: 'include',
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.authenticated) {
+            setIsAuthenticated(true)
+            return
+          }
+        }
+      } catch (err) {
+        // Ignore errors
+      }
+      
+      // Not authenticated - redirect to login
+      setIsAuthenticated(false)
+      router.push('/login')
+    }
+    
+    checkAuth()
+  }, [router, apiBaseUrl])
+  
   // SWR hooks for data fetching - automatic polling, no full page refresh
+  // Disable fetching if not authenticated (will be enabled after auth check)
+  const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then(res => res.json())
+  
   const { data: ordersData, error: ordersError, isLoading: ordersLoading } = useSWR(
-    `${apiBaseUrl}/api/orders`,
+    isAuthenticated === true ? `${apiBaseUrl}/api/orders` : null,
+    fetcher,
     { refreshInterval: 5000, revalidateOnFocus: false }
   )
   
   const { data: accountData, error: accountError, isLoading: accountLoading } = useSWR(
-    `${apiBaseUrl}/api/account`,
+    isAuthenticated === true ? `${apiBaseUrl}/api/account` : null,
+    fetcher,
     { refreshInterval: 5000, revalidateOnFocus: false }
   )
   
   const { data: pricesData, error: pricesError, isLoading: pricesLoading } = useSWR(
-    `${apiBaseUrl}/api/prices`,
+    isAuthenticated === true ? `${apiBaseUrl}/api/prices` : null,
+    fetcher,
     { refreshInterval: 5000, revalidateOnFocus: false }
   )
   
   const { data: loadingStatusData, isLoading: statusLoading } = useSWR(
-    `${apiBaseUrl}/api/status`,
-    { refreshInterval: 500, revalidateOnFocus: false } // Poll status more frequently
+    isAuthenticated === true ? `${apiBaseUrl}/api/status` : null,
+    fetcher,
+    { refreshInterval: 5000, revalidateOnFocus: false } // Poll status more frequently
   )
   
   // Extract data from SWR responses
@@ -243,9 +309,11 @@ export default function OrdersPage() {
   
   // Refresh function for manual refresh (used by buttons)
   const refreshData = () => {
-    mutate(`${apiBaseUrl}/api/orders`)
-    mutate(`${apiBaseUrl}/api/account`)
-    mutate(`${apiBaseUrl}/api/prices`)
+    if (isAuthenticated === true) {
+      mutate(`${apiBaseUrl}/api/orders`)
+      mutate(`${apiBaseUrl}/api/account`)
+      mutate(`${apiBaseUrl}/api/prices`)
+    }
   }
   
   // Determine loading state - show loading if initial load OR backend is processing
@@ -254,6 +322,132 @@ export default function OrdersPage() {
   
   // Determine online status from SWR errors
   const isOnline = !ordersError && !accountError && !pricesError
+  
+  // Track last price update time per symbol
+  const [lastPriceUpdate, setLastPriceUpdate] = useState<Record<string, number>>({})
+  
+  // Update last price update time when prices change
+  useEffect(() => {
+    if (prices && Object.keys(prices).length > 0) {
+      const now = Date.now()
+      const updates: Record<string, number> = {}
+      Object.keys(prices).forEach(symbol => {
+        updates[symbol] = now
+      })
+      setLastPriceUpdate(prev => ({ ...prev, ...updates }))
+    }
+  }, [prices])
+
+  // Price status indicator component
+  type PriceStatus = 'live' | 'closed' | 'stale'
+  
+  function getPriceStatus(symbol: string, marketStatus: MarketStatus | null): PriceStatus {
+    if (!marketStatus || marketStatus.is_open === null) {
+      return 'stale' // Can't determine status
+    }
+    
+    if (!marketStatus.is_open) {
+      return 'closed' // Market is closed
+    }
+    
+    // Market is open - check if price is stale
+    const lastUpdate = lastPriceUpdate[symbol]
+    if (!lastUpdate) {
+      return 'stale' // No price data yet
+    }
+    
+    const secondsSinceUpdate = (Date.now() - lastUpdate) / 1000
+    const STALE_THRESHOLD = 15 // Consider stale if no update for 15 seconds
+    
+    if (secondsSinceUpdate > STALE_THRESHOLD) {
+      return 'stale' // Price is stale
+    }
+    
+    return 'live' // Live price
+  }
+  
+  function PriceStatusIndicator({ symbol, marketStatus }: { symbol: string, marketStatus: MarketStatus | null }) {
+    const status = getPriceStatus(symbol, marketStatus)
+    const [showTooltip, setShowTooltip] = useState(false)
+    const [currentTime, setCurrentTime] = useState(Date.now())
+    const lastUpdate = lastPriceUpdate[symbol]
+    
+    // Update current time every second for real-time tooltip
+    useEffect(() => {
+      const interval = setInterval(() => {
+        setCurrentTime(Date.now())
+      }, 1000)
+      return () => clearInterval(interval)
+    }, [])
+    
+    const secondsSinceUpdate = lastUpdate ? Math.floor((currentTime - lastUpdate) / 1000) : null
+    
+    let icon: React.ReactNode
+    let tooltipTitle: string
+    let tooltipContent: React.ReactNode
+    
+    if (status === 'live') {
+      icon = (
+        <Circle 
+          className="h-2.5 w-2.5 text-yellow-400 fill-yellow-400 animate-pulse" 
+          style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}
+        />
+      )
+      tooltipTitle = "Live Price"
+      tooltipContent = (
+        <div>
+          <p>Price is updating in real-time</p>
+          {secondsSinceUpdate !== null && (
+            <p className="mt-1 text-xs">Last update: {secondsSinceUpdate}s ago</p>
+          )}
+        </div>
+      )
+    } else if (status === 'closed') {
+      icon = <CircleDot className="h-2.5 w-2.5 text-gray-400 fill-gray-400" />
+      tooltipTitle = "Market Closed"
+      tooltipContent = (
+        <div>
+          <p>Markets are currently closed</p>
+          {marketStatus?.next_open && (
+            <p className="mt-1 text-xs">Opens: {formatMarketTime(marketStatus.next_open)}</p>
+          )}
+        </div>
+      )
+    } else {
+      icon = <AlertCircle className="h-2.5 w-2.5 text-orange-400 fill-orange-400" />
+      tooltipTitle = "Price Stale"
+      tooltipContent = (
+        <div>
+          <p>No price update received</p>
+          {secondsSinceUpdate !== null ? (
+            <p className="mt-1 text-xs">Last update: {secondsSinceUpdate}s ago</p>
+          ) : (
+            <p className="mt-1 text-xs">No price data available</p>
+          )}
+        </div>
+      )
+    }
+    
+    return (
+      <div 
+        className="relative inline-flex items-center ml-1 cursor-help"
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+      >
+        {icon}
+        {showTooltip && (
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-[100] bg-popover border border-border rounded-md shadow-lg p-2 min-w-[200px]">
+            <p className="text-xs font-semibold text-foreground mb-1">{tooltipTitle}</p>
+            <div className="text-xs text-muted-foreground">
+              {tooltipContent}
+            </div>
+            {/* Arrow pointing down */}
+            <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-popover"></div>
+          </div>
+        )}
+      </div>
+    )
+  }
   
   // Track last sync time
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
@@ -267,6 +461,10 @@ export default function OrdersPage() {
   
   // Track which buttons are showing confirmation UI (persists across re-renders)
   const [confirmingButtons, setConfirmingButtons] = useState<Set<string>>(new Set())
+  
+  // Search/filter state for GTT orders
+  const [gttSearchQuery, setGttSearchQuery] = useState<string>("")
+  const [expandedAccordion, setExpandedAccordion] = useState<string | null>(null) // Track which accordion is open for lazy loading
   
   // Tooltip state for status icons
   const [tooltipState, setTooltipState] = useState<{
@@ -516,26 +714,6 @@ export default function OrdersPage() {
       ),
     },
     {
-      id: "current_price",
-      header: "Current Price",
-      cell: ({ row }) => {
-        const order = row.original
-        const priceMet = currentPrice && currentPrice <= order.price
-        return currentPrice ? (
-          <span
-            className={
-              priceMet ? "text-yellow-400 font-medium" : "text-muted-foreground"
-            }
-          >
-            {formatCurrency(currentPrice)}
-            {priceMet && " ✓"}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )
-      },
-    },
-    {
       accessorKey: "status",
       header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Status" />,
       cell: ({ row }) => getStatusBadge(row.original.status, row.original.is_current),
@@ -592,6 +770,29 @@ export default function OrdersPage() {
     })
     return grouped
   }, [gttOrders])
+  
+  // Filter GTT orders by search query
+  const filteredGttBySymbol: Record<string, GTTOrder[]> = useMemo(() => {
+    if (!gttSearchQuery.trim()) {
+      return gttBySymbol
+    }
+    
+    const query = gttSearchQuery.toLowerCase().trim()
+    const filtered: Record<string, GTTOrder[]> = {}
+    
+    Object.entries(gttBySymbol).forEach(([symbol, orders]) => {
+      const company = orders[0]?.company || ""
+      // Match by symbol or company name
+      if (
+        symbol.toLowerCase().includes(query) ||
+        company.toLowerCase().includes(query)
+      ) {
+        filtered[symbol] = orders
+      }
+    })
+    
+    return filtered
+  }, [gttBySymbol, gttSearchQuery])
 
   // Column definitions for Active Orders
   const activeOrderColumns: ColumnDef<ActiveOrder>[] = [
@@ -692,6 +893,83 @@ export default function OrdersPage() {
         )
       },
     },
+    {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => {
+        const order = row.original
+        const symbol = order.symbol
+        const symbolGTTOrders = gttBySymbol[symbol] || []
+        const isGTTOrder = gttOrderIds.has(order.id)
+        
+        // Find the matching GTT order
+        const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === order.id)
+        
+        // Check if order can be re-instated (expired, cancelled, rejected)
+        const canReinstate = isGTTOrder && matchingGTTOrder && 
+          ["expired", "cancelled", "rejected", "pending_cancel"].includes(order.status.toLowerCase())
+        
+        if (!canReinstate) {
+          return <span className="text-muted-foreground text-xs">—</span>
+        }
+        
+        const isReinstating = isConfirming(`reinstate-${order.id}`)
+        
+        return (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            disabled={isReinstating}
+            onClick={async (e) => {
+              e.stopPropagation()
+              addConfirmingButton(`reinstate-${order.id}`)
+              
+              try {
+                const response = await fetch(`${apiBaseUrl}/api/reinstate-gtt-order`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    symbol: symbol,
+                    order_index: matchingGTTOrder.order_index
+                  })
+                })
+                
+                const data = await response.json()
+                
+                if (response.ok) {
+                  // Refresh data to show updated status
+                  refreshData()
+                  // Show success message (you could add a toast notification here)
+                  console.log(`Successfully re-instated order for ${symbol}`)
+                } else {
+                  console.error(`Failed to re-instate order: ${data.error}`)
+                  alert(`Failed to re-instate order: ${data.error}`)
+                }
+              } catch (error) {
+                console.error('Error re-instating order:', error)
+                alert(`Error re-instating order: ${error}`)
+              } finally {
+                setTimeout(() => removeConfirmingButton(`reinstate-${order.id}`), 2000)
+              }
+            }}
+          >
+            {isReinstating ? (
+              <>
+                <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                Re-instating...
+              </>
+            ) : (
+              <>
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Re-instate
+              </>
+            )}
+          </Button>
+        )
+      },
+    },
   ]
 
   // Categorize orders by status
@@ -711,6 +989,32 @@ export default function OrdersPage() {
   }
 
   const orderCategories = useMemo(() => categorizeOrders(activeOrders), [activeOrders])
+  
+  // Show loading while checking auth
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
+  
+  // Redirect if not authenticated (handled by useEffect, but show loading)
+  if (isAuthenticated === false) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Redirecting to login...</p>
+        </div>
+      </div>
+    )
+  }
+  
+  // All hooks have been called - now render the UI
 
   return (
     <div className="min-h-screen bg-background p-2 sm:p-4">
@@ -795,18 +1099,41 @@ export default function OrdersPage() {
                       onMouseLeave={() => setTooltipState(prev => ({ ...prev, sync: false }))}
                     />
                     
-                    {/* Market Status Warning */}
-                    {marketStatus && marketStatus.is_open === false && (
+                    {/* Market Status Icon - Always show */}
+                    {marketStatus && (
                       <IconTooltip
-                        icon={<Clock className="h-4 w-4 text-yellow-500/70 cursor-help" />}
+                        icon={
+                          marketStatus.is_open === true ? (
+                            <Activity className="h-4 w-4 text-green-500 cursor-help" />
+                          ) : marketStatus.is_open === false ? (
+                            <Clock className="h-4 w-4 text-yellow-500/70 cursor-help" />
+                          ) : (
+                            <Clock className="h-4 w-4 text-gray-500 cursor-help" />
+                          )
+                        }
                         title="Market Status"
                         content={
                           <>
-                            <span>Markets are currently closed. Prices may be stale.</span>
-                            {marketStatus.next_open && (
-                              <span className="block mt-1 font-medium text-foreground">
-                                Opens: <span className="text-primary">{formatMarketTime(marketStatus.next_open)}</span>
-                              </span>
+                            {marketStatus.is_open === true ? (
+                              <>
+                                <span className="text-green-500 font-medium">Markets are open</span>
+                                {marketStatus.next_close && (
+                                  <span className="block mt-1 text-xs">
+                                    Closes: <span className="text-primary">{formatMarketTime(marketStatus.next_close)}</span>
+                                  </span>
+                                )}
+                              </>
+                            ) : marketStatus.is_open === false ? (
+                              <>
+                                <span>Markets are currently closed. Prices may be stale.</span>
+                                {marketStatus.next_open && (
+                                  <span className="block mt-1 font-medium text-foreground">
+                                    Opens: <span className="text-primary">{formatMarketTime(marketStatus.next_open)}</span>
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span>Market status unknown</span>
                             )}
                           </>
                         }
@@ -863,20 +1190,20 @@ export default function OrdersPage() {
           
           {/* Bottom row: Account Summary - After Status */}
           {account && (
-            <Card className="w-full">
-              <CardContent className="py-2 px-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-6">
-                  <div className="flex items-center gap-2">
+            <Card className="gap-0 py-1 w-full">
+              <CardContent className="p-1.5 sm:p-2">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 sm:gap-3">
+                  <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-muted-foreground font-medium">Buying Power</span>
                     <span className="text-sm font-semibold text-foreground">{formatCurrency(account.buying_power)}</span>
                   </div>
                   <div className="hidden sm:block h-4 w-px bg-border"></div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-muted-foreground font-medium">Cash</span>
                     <span className="text-sm font-semibold text-foreground">{formatCurrency(account.cash)}</span>
                   </div>
                   <div className="hidden sm:block h-4 w-px bg-border"></div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-muted-foreground font-medium">Equity</span>
                     <span className="text-sm font-semibold text-foreground">{formatCurrency(account.equity)}</span>
                   </div>
@@ -895,6 +1222,30 @@ export default function OrdersPage() {
 
           {/* GTT Orders Tab */}
           <TabsContent value="gtt" className="space-y-4">
+            {/* Search/Filter Bar */}
+            <div className="flex items-center justify-end gap-2">
+              <div className="relative w-64">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search by symbol or name..."
+                  value={gttSearchQuery}
+                  onChange={(e) => setGttSearchQuery(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+                {gttSearchQuery && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+                    onClick={() => setGttSearchQuery("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            </div>
+            
             {/* Show loading screen if initial load AND no data exists yet */}
             {isLoading && gttOrders.length === 0 ? (
               <Card>
@@ -936,16 +1287,36 @@ export default function OrdersPage() {
                   </div>
                 </CardContent>
               </Card>
-            ) : Object.keys(gttBySymbol).length === 0 ? (
+            ) : Object.keys(filteredGttBySymbol).length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
-                  No GTT orders found. Load orders from CSV files.
+                  {gttSearchQuery ? (
+                    <div>
+                      <p>No orders found matching "{gttSearchQuery}"</p>
+                      <Button
+                        variant="link"
+                        className="mt-2"
+                        onClick={() => setGttSearchQuery("")}
+                      >
+                        Clear search
+                      </Button>
+                    </div>
+                  ) : (
+                    <span>No GTT orders found. Load orders from CSV files.</span>
+                  )}
                 </CardContent>
               </Card>
             ) : (
-              <Accordion type="single" collapsible className="w-full space-y-4">
-                {Object.entries(gttBySymbol).map(([symbol, orders]) => {
+              <Accordion 
+                type="single" 
+                collapsible 
+                className="w-full space-y-4"
+                value={expandedAccordion || undefined}
+                onValueChange={(value) => setExpandedAccordion(value || null)}
+              >
+                {Object.entries(filteredGttBySymbol).map(([symbol, orders]) => {
                   const currentPrice = prices[symbol]
+                  const isUnavailable = orders[0]?.is_available_on_alpaca === false
                   
                   // Count orders by status - use Alpaca official statuses
                   const completedOrders = orders.filter(o => {
@@ -972,32 +1343,38 @@ export default function OrdersPage() {
                   
                   return (
                     <AccordionItem key={symbol} value={symbol} className="border-none">
-                      <Card>
-                        <CardHeader className="p-3 sm:p-6">
-                          <AccordionTrigger className="hover:no-underline">
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-4 gap-3 sm:gap-0">
+                      <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
+                        <CardHeader className="p-1.5 sm:p-2">
+                          <AccordionTrigger className="hover:no-underline py-0 items-center">
+                            <div className="flex flex-col sm:flex-row items-center sm:items-center justify-between w-full pr-2 gap-1 sm:gap-1">
                               {/* Left side: Name and description */}
                               <div className="text-left flex-1 min-w-0">
-                                <CardTitle className="text-xl">{symbol}</CardTitle>
-                                <CardDescription className="mt-1">
+                                <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
+                                  {symbol}
+                                  {isUnavailable && (
+                                    <span className="ml-1.5 text-xs font-normal text-red-500/70">(Not available)</span>
+                                  )}
+                                </CardTitle>
+                                <CardDescription className={`mt-0 text-xs ${isUnavailable ? 'text-red-400' : ''}`}>
                                   {orders[0]?.company}
                                 </CardDescription>
                               </div>
                               
                               {/* Right side: Four cards in a responsive grid */}
-                              <div className="flex flex-col sm:flex-row gap-2 ml-2 sm:ml-4 flex-shrink-0">
+                              <div className="flex flex-col sm:flex-row gap-1 ml-0.5 sm:ml-1 flex-shrink-0">
                                 {/* Top row: Current Price and Next Limit */}
-                                <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-1 overflow-visible">
                                   {currentPrice && (
-                                    <Badge variant="outline" className="text-xs shrink-0 px-2 py-1">
-                                      Current: {formatCurrency(currentPrice)}
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1 overflow-visible relative">
+                                      <span>Current: {formatCurrency(currentPrice)}</span>
+                                      <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
                                     </Badge>
                                   )}
                                   {(() => {
                                     const currentOrder = orders.find(o => o.is_current)
                                     if (currentOrder) {
                                       return (
-                                        <Badge variant="outline" className="text-xs shrink-0 px-2 py-1">
+                                        <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0">
                                           Next Limit: {formatCurrency(currentOrder.price)}
                                         </Badge>
                                       )
@@ -1007,11 +1384,11 @@ export default function OrdersPage() {
                                 </div>
                                 
                                 {/* Bottom row: Placed count and Remaining count */}
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Badge variant="outline" className="text-xs shrink-0 px-2 py-1 bg-primary/10 text-primary border-primary/30">
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
                                     {placedCount} of {totalOrders} placed
                                   </Badge>
-                                  <Badge variant="outline" className="text-xs shrink-0 px-2 py-1 bg-muted/50 text-muted-foreground">
+                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-muted/50 text-muted-foreground">
                                     {remainingCount} remaining
                                   </Badge>
                                 </div>
@@ -1020,11 +1397,20 @@ export default function OrdersPage() {
                           </AccordionTrigger>
                         </CardHeader>
                         <AccordionContent>
-                          <CardContent className="p-3 sm:p-6">
+                          <CardContent className="p-1.5 sm:p-2 space-y-4">
                             <DataTable
                               columns={columns}
                               data={orders}
                             />
+                            {/* Stock Chart - Only fetch when accordion is expanded (lazy loading) */}
+                            <div className="pt-2 border-t">
+                              <StockChart 
+                                symbol={symbol} 
+                                apiBaseUrl={apiBaseUrl} 
+                                height={200}
+                                enabled={expandedAccordion === symbol}
+                              />
+                            </div>
                           </CardContent>
                         </AccordionContent>
                       </Card>
@@ -1036,11 +1422,11 @@ export default function OrdersPage() {
           </TabsContent>
 
           {/* Orders Tab */}
-          <TabsContent value="orders" className="space-y-6">
+          <TabsContent value="orders" className="space-y-4">
             {/* Active Orders Section */}
-            <Card>
-              <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+            <Card className="gap-0 py-1">
+              <CardHeader className="p-1.5 sm:p-2">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   Active
                   {orderCategories.active.length > 0 && (
                     <Badge variant="secondary" className="ml-2">
@@ -1048,9 +1434,9 @@ export default function OrdersPage() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription className="text-xs sm:text-sm">Orders currently placed and live (buying power locked)</CardDescription>
+                <CardDescription className="text-xs">Orders currently placed and live (buying power locked)</CardDescription>
               </CardHeader>
-              <CardContent className="p-3 sm:p-6">
+              <CardContent className="p-1.5 sm:p-2">
                 {/* Show loading screen if:
                     1. Initial load AND no data exists yet, OR
                     2. Backend is still loading (from /api/status) - show even if we have some orders */}
@@ -1173,9 +1559,9 @@ export default function OrdersPage() {
             </Card>
 
             {/* Completed Orders Section */}
-            <Card>
-              <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+            <Card className="gap-0 py-1">
+              <CardHeader className="p-1.5 sm:p-2">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   Completed
                   {orderCategories.completed.length > 0 && (
                     <Badge variant="default" className="ml-2">
@@ -1183,9 +1569,9 @@ export default function OrdersPage() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription className="text-xs sm:text-sm">Orders that have been filled (executed)</CardDescription>
+                <CardDescription className="text-xs">Orders that have been filled (executed)</CardDescription>
               </CardHeader>
-              <CardContent className="p-3 sm:p-6">
+              <CardContent className="p-1.5 sm:p-2">
                 {/* Show loading screen if:
                     1. Initial load AND no data exists yet, OR
                     2. Backend is still loading (from /api/status) - show even if we have some orders */}
@@ -1308,9 +1694,9 @@ export default function OrdersPage() {
             </Card>
 
             {/* Cancelled Orders Section */}
-            <Card>
-              <CardHeader className="p-4 sm:p-6">
-                <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+            <Card className="gap-0 py-1">
+              <CardHeader className="p-1.5 sm:p-2">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   Cancelled
                   {orderCategories.cancelled.length > 0 && (
                     <Badge variant="destructive" className="ml-2">
@@ -1318,9 +1704,9 @@ export default function OrdersPage() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription className="text-xs sm:text-sm">Orders that were cancelled or expired</CardDescription>
+                <CardDescription className="text-xs">Orders that were cancelled or expired</CardDescription>
               </CardHeader>
-              <CardContent className="p-3 sm:p-6">
+              <CardContent className="p-1.5 sm:p-2">
                 {/* Show loading screen if:
                     1. Initial load AND no data exists yet, OR
                     2. Backend is still loading (from /api/status) - show even if we have some orders */}
