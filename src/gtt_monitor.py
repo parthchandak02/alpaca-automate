@@ -593,6 +593,9 @@ class GTTOrderManager:
     
     def _send_discord_notification(self, title: str, description: str, color: int = 0x0099ff, fields: List[Dict] = None, footer_text: str = None):
         """Send a Discord webhook notification with elegant formatting"""
+        # Temporarily disabled - Discord notifications are off
+        return
+        
         webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
         if not webhook_url:
             return  # Discord notifications disabled
@@ -1568,21 +1571,21 @@ def main():
         
         scheduler = BackgroundScheduler(timezone=pytz.timezone('America/New_York'))
         
-        # Daily summary at 9:30 AM EST (market open)
+        # Daily summary at 4:00 PM EST (end of trading day)
         # misfire_grace_time: If job is missed, allow it to run up to 1 hour late
         scheduler.add_job(
             manager.notification_manager.send_daily_summary,
-            trigger=CronTrigger(hour=9, minute=30, timezone=pytz.timezone('America/New_York')),
+            trigger=CronTrigger(hour=16, minute=0, timezone=pytz.timezone('America/New_York')),
             id='daily_summary',
             name='Daily Trading Summary',
             replace_existing=True,
             misfire_grace_time=3600  # 1 hour grace period for missed jobs
         )
         
-        # Weekly summary on Monday at 9:00 AM EST
+        # Weekly summary on Friday at 4:00 PM EST (end of trading week)
         scheduler.add_job(
             manager.notification_manager.send_weekly_summary,
-            trigger=CronTrigger(day_of_week='mon', hour=9, minute=0, timezone=pytz.timezone('America/New_York')),
+            trigger=CronTrigger(day_of_week='fri', hour=16, minute=0, timezone=pytz.timezone('America/New_York')),
             id='weekly_summary',
             name='Weekly Trading Summary',
             replace_existing=True,
@@ -1590,8 +1593,8 @@ def main():
         )
         
         scheduler.start()
-        logger.info("Scheduled jobs started: Daily summary (9:30 AM EST), Weekly summary (Monday 9:00 AM EST)")
-        console.print("[green]✓[/green] Scheduled notifications: Daily (9:30 AM EST), Weekly (Monday 9:00 AM EST)")
+        logger.info("Scheduled jobs started: Daily summary (4:00 PM EST), Weekly summary (Friday 4:00 PM EST)")
+        console.print("[green]✓[/green] Scheduled notifications: Daily (4:00 PM EST), Weekly (Friday 4:00 PM EST)")
     except Exception as e:
         logger.warning(f"Failed to start scheduled jobs: {e}")
         console.print(f"[yellow]⚠[/yellow] Scheduled jobs not started: {e}")

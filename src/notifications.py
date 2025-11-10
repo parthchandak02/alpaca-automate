@@ -245,8 +245,101 @@ class NotificationManager:
         logger.info(f"CSV change notification sent for {filename}")
     
     def get_daily_summary(self, target_date: datetime) -> Dict:
-        """Get summary of orders placed and executed for a specific date"""
-        # Filter activities for the target date
+        """Get summary of orders placed and executed for a specific date using actual Alpaca order timestamps"""
+        import pytz
+        from alpaca.trading.requests import GetOrdersRequest
+        
+        # Convert target_date to EST timezone for date comparison
+        est = pytz.timezone('America/New_York')
+        if target_date.tzinfo is None:
+            target_date = est.localize(target_date)
+        else:
+            target_date = target_date.astimezone(est)
+        
+        # Get start and end of trading day (4:00 AM - 8:00 PM EST to cover pre/post market)
+        start_of_day = target_date.replace(hour=4, minute=0, second=0, microsecond=0)
+        end_of_day = start_of_day + timedelta(days=1)
+        
+        # Fetch all orders from Alpaca
+        try:
+            orders_request = GetOrdersRequest(limit=500)  # Get more orders to cover the period
+            alpaca_orders = self.manager.trading_client.get_orders(orders_request)
+        except Exception as e:
+            logger.error(f"Error fetching orders for daily summary: {e}", exc_info=True)
+            # Fallback to recorded activity
+            return self._get_daily_summary_from_activity(target_date)
+        
+        # Filter orders by timestamp based on their status
+        placed_orders = []
+        filled_orders = []
+        cancelled_orders = []
+        
+        # Create a mapping of order_id to GTT order info
+        order_id_to_gtt = {}
+        for symbol, ladder in self.manager.ladders.items():
+            for idx, order in enumerate(ladder.orders):
+                if order.order_id:
+                    order_id_to_gtt[order.order_id] = {
+                        'symbol': symbol,
+                        'company': ladder.company,
+                        'order_num': idx + 1,
+                        'price': order.price,
+                        'amount': order.amount
+                    }
+        
+        for order in alpaca_orders:
+            # Determine the relevant timestamp based on order status
+            order_timestamp = None
+            status_lower = order.status.value.lower() if hasattr(order.status, 'value') else str(order.status).lower()
+            
+            if status_lower == 'filled' and hasattr(order, 'filled_at') and order.filled_at:
+                order_timestamp = order.filled_at
+            elif status_lower in ['cancelled', 'canceled', 'expired', 'rejected']:
+                if hasattr(order, 'canceled_at') and order.canceled_at:
+                    order_timestamp = order.canceled_at
+                elif hasattr(order, 'updated_at') and order.updated_at:
+                    order_timestamp = order.updated_at
+            elif hasattr(order, 'created_at') and order.created_at:
+                order_timestamp = order.created_at
+            
+            if order_timestamp:
+                # Convert to EST for comparison
+                if order_timestamp.tzinfo is None:
+                    order_timestamp = pytz.UTC.localize(order_timestamp)
+                order_timestamp_est = order_timestamp.astimezone(est)
+                
+                # Check if order timestamp falls within the target date
+                if start_of_day <= order_timestamp_est < end_of_day:
+                    # Get GTT order info if available
+                    gtt_info = order_id_to_gtt.get(order.id)
+                    if gtt_info:
+                        order_data = {
+                            'symbol': gtt_info['symbol'],
+                            'company': gtt_info['company'],
+                            'order_num': gtt_info['order_num'],
+                            'price': float(order.limit_price) if order.limit_price else gtt_info['price'],
+                            'amount': int(order.qty) if order.qty else gtt_info['amount'],
+                            'order_id': order.id,
+                            'timestamp': order_timestamp_est
+                        }
+                        
+                        if status_lower == 'filled':
+                            filled_orders.append(order_data)
+                        elif status_lower in ['cancelled', 'canceled', 'expired', 'rejected']:
+                            cancelled_orders.append(order_data)
+                        elif status_lower in ['new', 'accepted', 'pending_new', 'pending_replace', 'accepted_for_bidding']:
+                            placed_orders.append(order_data)
+        
+        return {
+            'date': target_date.strftime('%Y-%m-%d'),
+            'placed': placed_orders,
+            'filled': filled_orders,
+            'cancelled': cancelled_orders,
+            'other': []
+        }
+    
+    def _get_daily_summary_from_activity(self, target_date: datetime) -> Dict:
+        """Fallback: Get summary from recorded activity (used if Alpaca API fails)"""
         start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_day = start_of_day + timedelta(days=1)
         
@@ -255,7 +348,6 @@ class NotificationManager:
             if start_of_day <= a.timestamp < end_of_day
         ]
         
-        # Group by action type
         summary = {
             'date': target_date.strftime('%Y-%m-%d'),
             'placed': [],
@@ -277,7 +369,109 @@ class NotificationManager:
         return summary
     
     def get_weekly_summary(self, week_start: datetime) -> Dict:
-        """Get weekly summary of all trading activity"""
+        """Get weekly summary of all trading activity using actual Alpaca order timestamps"""
+        import pytz
+        from alpaca.trading.requests import GetOrdersRequest
+        
+        # Convert week_start to EST timezone
+        est = pytz.timezone('America/New_York')
+        if week_start.tzinfo is None:
+            week_start = est.localize(week_start)
+        else:
+            week_start = week_start.astimezone(est)
+        
+        # Week runs Monday 4:00 AM to Friday 8:00 PM EST
+        week_start = week_start.replace(hour=4, minute=0, second=0, microsecond=0)
+        week_end = week_start + timedelta(days=5)  # Monday to Friday
+        week_end = week_end.replace(hour=20, minute=0, second=0, microsecond=0)
+        
+        # Fetch all orders from Alpaca
+        try:
+            orders_request = GetOrdersRequest(limit=500)
+            alpaca_orders = self.manager.trading_client.get_orders(orders_request)
+        except Exception as e:
+            logger.error(f"Error fetching orders for weekly summary: {e}", exc_info=True)
+            # Fallback to recorded activity
+            return self._get_weekly_summary_from_activity(week_start)
+        
+        # Create a mapping of order_id to GTT order info
+        order_id_to_gtt = {}
+        for symbol, ladder in self.manager.ladders.items():
+            for idx, order in enumerate(ladder.orders):
+                if order.order_id:
+                    order_id_to_gtt[order.order_id] = {
+                        'symbol': symbol,
+                        'company': ladder.company,
+                        'order_num': idx + 1,
+                        'price': order.price,
+                        'amount': order.amount
+                    }
+        
+        # Group by day
+        daily_summaries = {}
+        
+        for order in alpaca_orders:
+            # Determine the relevant timestamp
+            order_timestamp = None
+            status_lower = order.status.value.lower() if hasattr(order.status, 'value') else str(order.status).lower()
+            
+            if status_lower == 'filled' and hasattr(order, 'filled_at') and order.filled_at:
+                order_timestamp = order.filled_at
+            elif status_lower in ['cancelled', 'canceled', 'expired', 'rejected']:
+                if hasattr(order, 'canceled_at') and order.canceled_at:
+                    order_timestamp = order.canceled_at
+                elif hasattr(order, 'updated_at') and order.updated_at:
+                    order_timestamp = order.updated_at
+            elif hasattr(order, 'created_at') and order.created_at:
+                order_timestamp = order.created_at
+            
+            if order_timestamp:
+                # Convert to EST for comparison
+                if order_timestamp.tzinfo is None:
+                    order_timestamp = pytz.UTC.localize(order_timestamp)
+                order_timestamp_est = order_timestamp.astimezone(est)
+                
+                # Check if order timestamp falls within the week
+                if week_start <= order_timestamp_est < week_end:
+                    day_key = order_timestamp_est.strftime('%Y-%m-%d')
+                    if day_key not in daily_summaries:
+                        daily_summaries[day_key] = {
+                            'placed': 0,
+                            'filled': 0,
+                            'cancelled': 0,
+                            'total_value_placed': 0.0,
+                            'total_value_filled': 0.0
+                        }
+                    
+                    day_sum = daily_summaries[day_key]
+                    gtt_info = order_id_to_gtt.get(order.id)
+                    
+                    if gtt_info:
+                        price = float(order.limit_price) if order.limit_price else gtt_info['price']
+                        amount = int(order.qty) if order.qty else gtt_info['amount']
+                        
+                        if status_lower == 'filled':
+                            day_sum['filled'] += 1
+                            day_sum['total_value_filled'] += price * amount
+                        elif status_lower in ['cancelled', 'canceled', 'expired', 'rejected']:
+                            day_sum['cancelled'] += 1
+                        elif status_lower in ['new', 'accepted', 'pending_new', 'pending_replace', 'accepted_for_bidding']:
+                            day_sum['placed'] += 1
+                            day_sum['total_value_placed'] += price * amount
+        
+        return {
+            'week_start': week_start.strftime('%Y-%m-%d'),
+            'week_end': (week_end - timedelta(days=1)).strftime('%Y-%m-%d'),
+            'daily_summaries': daily_summaries,
+            'total_placed': sum(s['placed'] for s in daily_summaries.values()),
+            'total_filled': sum(s['filled'] for s in daily_summaries.values()),
+            'total_cancelled': sum(s['cancelled'] for s in daily_summaries.values()),
+            'total_value_placed': sum(s['total_value_placed'] for s in daily_summaries.values()),
+            'total_value_filled': sum(s['total_value_filled'] for s in daily_summaries.values())
+        }
+    
+    def _get_weekly_summary_from_activity(self, week_start: datetime) -> Dict:
+        """Fallback: Get weekly summary from recorded activity (used if Alpaca API fails)"""
         week_end = week_start + timedelta(days=7)
         
         week_activities = [
@@ -285,7 +479,6 @@ class NotificationManager:
             if week_start <= a.timestamp < week_end
         ]
         
-        # Group by day
         daily_summaries = {}
         for activity in week_activities:
             day_key = activity.timestamp.strftime('%Y-%m-%d')
@@ -320,10 +513,17 @@ class NotificationManager:
         }
     
     def send_daily_summary(self, target_date: Optional[datetime] = None):
-        """Send daily summary email"""
+        """Send daily summary email at end of trading day"""
+        import pytz
+        est = pytz.timezone('America/New_York')
+        
         if target_date is None:
-            # Get yesterday's date
-            target_date = datetime.now() - timedelta(days=1)
+            # Get today's date (since this runs at 4 PM, we want today's activity)
+            target_date = datetime.now(est)
+        elif target_date.tzinfo is None:
+            target_date = est.localize(target_date)
+        else:
+            target_date = target_date.astimezone(est)
         
         summary = self.get_daily_summary(target_date)
         
@@ -332,10 +532,10 @@ class NotificationManager:
         
         if summary['placed']:
             placed_details = []
-            for activity in summary['placed']:
+            for order in summary['placed']:
                 placed_details.append(
-                    f"{activity.symbol} Order {activity.order_num}: "
-                    f"{activity.amount} @ ${activity.price:.2f}"
+                    f"{order['symbol']} Order {order['order_num']}: "
+                    f"{order['amount']} @ ${order['price']:.2f}"
                 )
             fields.append({
                 "name": f"📤 Orders Placed ({len(summary['placed'])})",
@@ -345,10 +545,10 @@ class NotificationManager:
         
         if summary['filled']:
             filled_details = []
-            for activity in summary['filled']:
+            for order in summary['filled']:
                 filled_details.append(
-                    f"{activity.symbol} Order {activity.order_num}: "
-                    f"{activity.amount} @ ${activity.price:.2f}"
+                    f"{order['symbol']} Order {order['order_num']}: "
+                    f"{order['amount']} @ ${order['price']:.2f}"
                 )
             fields.append({
                 "name": f"✅ Orders Filled ({len(summary['filled'])})",
@@ -358,9 +558,9 @@ class NotificationManager:
         
         if summary['cancelled']:
             cancelled_details = []
-            for activity in summary['cancelled']:
+            for order in summary['cancelled']:
                 cancelled_details.append(
-                    f"{activity.symbol} Order {activity.order_num}: {activity.action}"
+                    f"{order['symbol']} Order {order['order_num']}"
                 )
             fields.append({
                 "name": f"❌ Orders Cancelled/Rejected ({len(summary['cancelled'])})",
@@ -369,7 +569,7 @@ class NotificationManager:
             })
         
         if not fields:
-            # No activity yesterday
+            # No activity today
             description = f"No orders were placed or executed on {summary['date']}."
             fields = [{
                 "name": "Status",
@@ -391,13 +591,20 @@ class NotificationManager:
             logger.error(f"Failed to send daily summary email for {summary['date']}: {e}", exc_info=True)
     
     def send_weekly_summary(self, week_start: Optional[datetime] = None):
-        """Send weekly summary email"""
+        """Send weekly summary email at end of trading week (Friday)"""
+        import pytz
+        est = pytz.timezone('America/New_York')
+        
         if week_start is None:
-            # Get last Monday
-            today = datetime.now()
-            days_since_monday = (today.weekday()) % 7
-            week_start = today - timedelta(days=days_since_monday + 7)  # Last week's Monday
-            week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Get this week's Monday (since this runs Friday, we want this week)
+            today = datetime.now(est)
+            days_since_monday = today.weekday()  # Monday = 0
+            week_start = today - timedelta(days=days_since_monday)
+            week_start = week_start.replace(hour=4, minute=0, second=0, microsecond=0)
+        elif week_start.tzinfo is None:
+            week_start = est.localize(week_start)
+        else:
+            week_start = week_start.astimezone(est)
         
         summary = self.get_weekly_summary(week_start)
         
