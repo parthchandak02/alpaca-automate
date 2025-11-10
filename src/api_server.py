@@ -357,6 +357,12 @@ def get_orders():
             if is_initial_load:
                 set_loading_status(True, "Processing Alpaca orders", 2, 4, "", f"Processing {len(alpaca_orders_list)} orders from Alpaca...")
             for order in alpaca_orders_list:
+                # Get timestamps from Alpaca order object
+                created_at = order.created_at.isoformat() if hasattr(order.created_at, 'isoformat') else str(order.created_at)
+                updated_at = order.updated_at.isoformat() if hasattr(order.updated_at, 'isoformat') else str(order.updated_at) if hasattr(order, 'updated_at') else None
+                filled_at = order.filled_at.isoformat() if hasattr(order, 'filled_at') and order.filled_at and hasattr(order.filled_at, 'isoformat') else (str(order.filled_at) if hasattr(order, 'filled_at') and order.filled_at else None)
+                canceled_at = order.canceled_at.isoformat() if hasattr(order, 'canceled_at') and order.canceled_at and hasattr(order.canceled_at, 'isoformat') else (str(order.canceled_at) if hasattr(order, 'canceled_at') and order.canceled_at else None)
+                
                 active_orders.append({
                     "id": order.id,
                     "symbol": order.symbol,
@@ -364,7 +370,10 @@ def get_orders():
                     "quantity": float(order.qty) if order.qty else 0,
                     "limit_price": float(order.limit_price) if order.limit_price else None,
                     "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
-                    "created_at": order.created_at.isoformat() if hasattr(order.created_at, 'isoformat') else str(order.created_at),
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                    "filled_at": filled_at,
+                    "canceled_at": canceled_at,
                     "filled_qty": float(order.filled_qty) if order.filled_qty else 0,
                 })
             logger.info(f"Fetched {len(active_orders)} active orders from Alpaca")
@@ -1145,10 +1154,76 @@ def get_chart_data(symbol: str):
                     "volume": int(bar.volume) if bar.volume else 0,
                 })
         
+        # Get GTT orders for this symbol
+        gtt_orders_for_symbol = []
+        if symbol in manager.ladders:
+            ladder = manager.ladders[symbol]
+            # Get Alpaca orders for this symbol to get timestamps
+            symbol_alpaca_orders = {}
+            try:
+                # Fetch orders for this symbol from Alpaca
+                orders_request = GetOrdersRequest(limit=100)
+                alpaca_orders = manager.trading_client.get_orders(orders_request)
+                for order in alpaca_orders:
+                    if order.symbol == symbol:
+                        symbol_alpaca_orders[order.id] = {
+                            'status': order.status.value if hasattr(order.status, 'value') else str(order.status),
+                            'updated_at': order.updated_at.isoformat() if hasattr(order.updated_at, 'isoformat') else str(order.updated_at) if hasattr(order, 'updated_at') else None,
+                            'filled_at': order.filled_at.isoformat() if hasattr(order, 'filled_at') and order.filled_at and hasattr(order.filled_at, 'isoformat') else (str(order.filled_at) if hasattr(order, 'filled_at') and order.filled_at else None),
+                            'canceled_at': order.canceled_at.isoformat() if hasattr(order, 'canceled_at') and order.canceled_at and hasattr(order.canceled_at, 'isoformat') else (str(order.canceled_at) if hasattr(order, 'canceled_at') and order.canceled_at else None),
+                        }
+            except Exception as e:
+                logger.debug(f"Error processing Alpaca orders for chart {symbol}: {e}")
+            
+            for idx, order in enumerate(ladder.orders):
+                display_status = order.status
+                order_timestamp = None
+                
+                # Get timestamp based on status
+                if order.order_id and order.order_id in symbol_alpaca_orders:
+                    alpaca_order_info = symbol_alpaca_orders[order.order_id]
+                    display_status = alpaca_order_info['status']
+                    # Use filled_at if filled, canceled_at if cancelled, updated_at otherwise
+                    if display_status.lower() == 'filled' and alpaca_order_info.get('filled_at'):
+                        order_timestamp = alpaca_order_info['filled_at']
+                    elif display_status.lower() in ['cancelled', 'canceled', 'expired', 'rejected'] and alpaca_order_info.get('canceled_at'):
+                        order_timestamp = alpaca_order_info['canceled_at']
+                    elif alpaca_order_info.get('updated_at'):
+                        order_timestamp = alpaca_order_info['updated_at']
+                elif order.order_id:
+                    # Try to get order from Alpaca
+                    try:
+                        alpaca_order = manager.trading_client.get_order_by_id(order.order_id)
+                        display_status = alpaca_order.status.value if hasattr(alpaca_order.status, 'value') else str(alpaca_order.status)
+                        if display_status.lower() == 'filled' and hasattr(alpaca_order, 'filled_at') and alpaca_order.filled_at:
+                            order_timestamp = alpaca_order.filled_at.isoformat() if hasattr(alpaca_order.filled_at, 'isoformat') else str(alpaca_order.filled_at)
+                        elif display_status.lower() in ['cancelled', 'canceled', 'expired', 'rejected'] and hasattr(alpaca_order, 'canceled_at') and alpaca_order.canceled_at:
+                            order_timestamp = alpaca_order.canceled_at.isoformat() if hasattr(alpaca_order.canceled_at, 'isoformat') else str(alpaca_order.canceled_at)
+                        elif hasattr(alpaca_order, 'updated_at') and alpaca_order.updated_at:
+                            order_timestamp = alpaca_order.updated_at.isoformat() if hasattr(alpaca_order.updated_at, 'isoformat') else str(alpaca_order.updated_at)
+                    except Exception:
+                        pass
+                
+                # If no timestamp yet, use created_at from when order was placed (if we track it)
+                # For pending orders, we don't have a timestamp yet
+                if not order_timestamp and order.order_id:
+                    # Use current time as fallback for placed orders without timestamp
+                    order_timestamp = datetime.now().isoformat()
+                
+                gtt_orders_for_symbol.append({
+                    "order_index": idx + 1,
+                    "price": order.price,
+                    "status": display_status.lower(),
+                    "order_id": order.order_id,
+                    "timestamp": order_timestamp,
+                    "is_current": idx == ladder.current_order_index,
+                })
+        
         return jsonify({
             "symbol": symbol,
             "timeframe": timeframe_str,
             "bars": bars_data,
+            "gtt_orders": gtt_orders_for_symbol,
             "count": len(bars_data)
         })
     except Exception as e:

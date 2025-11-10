@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import useSWR from "swr"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts"
+import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
+import { LineChart, Line, XAxis, YAxis, ReferenceLine } from "recharts"
 import { Button } from "@/components/ui/button"
 import { Loader2 } from "lucide-react"
 
@@ -14,6 +14,15 @@ interface StockChartProps {
   apiBaseUrl: string
   height?: number
   enabled?: boolean // Only fetch when enabled (accordion is open)
+}
+
+interface GTTOrder {
+  order_index: number
+  price: number
+  status: string
+  order_id: string | null
+  timestamp: string | null
+  is_current: boolean
 }
 
 const timeframeLabels: Record<Timeframe, string> = {
@@ -99,15 +108,22 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
     }
   }) || []
 
+  const gttOrders: GTTOrder[] = data?.gtt_orders || []
+
   const formatPrice = (value: number) => `$${value.toFixed(2)}`
   
-  // Calculate proper Y-axis domain with padding
+  // Calculate proper Y-axis domain with padding (including GTT orders)
   const calculateDomain = () => {
     if (chartData.length === 0) return ["auto", "auto"]
     
     const prices = chartData.map((d: any) => d.close)
-    const minPrice = Math.min(...prices)
-    const maxPrice = Math.max(...prices)
+    const gttPrices = gttOrders.map((o: GTTOrder) => o.price)
+    const allPrices = [...prices, ...gttPrices]
+    
+    if (allPrices.length === 0) return ["auto", "auto"]
+    
+    const minPrice = Math.min(...allPrices)
+    const maxPrice = Math.max(...allPrices)
     const priceRange = maxPrice - minPrice
     
     // Add 5% padding above and below
@@ -120,6 +136,47 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
   }
   
   const yAxisDomain = calculateDomain()
+
+  // Calculate evenly spaced ticks for Y-axis (for gridlines)
+  const calculateYTicks = () => {
+    if (chartData.length === 0 || yAxisDomain[0] === "auto" || yAxisDomain[1] === "auto") return []
+    const [min, max] = yAxisDomain as [number, number]
+    const range = max - min
+    const tickCount = 5 // Number of horizontal gridlines
+    const step = range / (tickCount - 1)
+    const ticks: number[] = []
+    for (let i = 0; i < tickCount; i++) {
+      ticks.push(min + step * i)
+    }
+    return ticks
+  }
+
+  // Calculate evenly spaced ticks for X-axis (for gridlines)
+  const calculateXTicks = () => {
+    if (chartData.length === 0) return []
+    const timestamps = chartData.map((d: any) => d.timestamp)
+    const minTime = Math.min(...timestamps)
+    const maxTime = Math.max(...timestamps)
+    const tickCount = 6 // Number of vertical gridlines
+    const step = (maxTime - minTime) / (tickCount - 1)
+    const ticks: number[] = []
+    for (let i = 0; i < tickCount; i++) {
+      ticks.push(minTime + step * i)
+    }
+    return ticks
+  }
+
+  const yTicks = calculateYTicks()
+  const xTicks = calculateXTicks()
+
+  // Get color for GTT order status
+  const getOrderColor = (status: string) => {
+    const statusLower = status.toLowerCase()
+    if (statusLower === "filled") return "oklch(0.7 0.2 145)" // Green
+    if (statusLower === "pending") return "oklch(0.85 0.15 95)" // Yellow
+    if (["cancelled", "canceled", "expired", "rejected"].includes(statusLower)) return "oklch(0.65 0.2 25)" // Red
+    return "oklch(0.65 0 0)" // Default gray
+  }
 
   return (
     <div className="w-full space-y-2">
@@ -170,22 +227,54 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
                   <stop offset="100%" stopColor="oklch(0.85 0.15 95)" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              {/* Major gridlines (horizontal) */}
-              <CartesianGrid 
-                strokeDasharray="none" 
-                stroke="oklch(0.25 0 0)" 
-                opacity={0.4}
-                vertical={false}
-                horizontal={true}
-              />
-              {/* Minor gridlines (vertical, subtle) */}
-              <CartesianGrid 
-                strokeDasharray="1 3" 
-                stroke="oklch(0.25 0 0)" 
-                opacity={0.15}
-                vertical={true}
-                horizontal={false}
-              />
+              
+              {/* Evenly spaced horizontal gridlines */}
+              {yTicks.map((tick, idx) => (
+                <ReferenceLine
+                  key={`h-grid-${idx}`}
+                  y={tick}
+                  stroke="oklch(0.25 0 0)"
+                  strokeOpacity={0.4}
+                  strokeDasharray="none"
+                />
+              ))}
+              
+              {/* Evenly spaced vertical gridlines */}
+              {xTicks.map((tick, idx) => {
+                // Find closest data point for this timestamp
+                const closestDataPoint = chartData.reduce((prev: any, curr: any) => 
+                  Math.abs(curr.timestamp - tick) < Math.abs(prev.timestamp - tick) ? curr : prev
+                )
+                return (
+                  <ReferenceLine
+                    key={`v-grid-${idx}`}
+                    x={closestDataPoint.date}
+                    stroke="oklch(0.25 0 0)"
+                    strokeOpacity={0.15}
+                    strokeDasharray="1 3"
+                  />
+                )
+              })}
+              
+              {/* GTT Order horizontal lines - always visible */}
+              {gttOrders.map((order, idx) => (
+                <ReferenceLine
+                  key={`gtt-order-${order.order_index}-${idx}`}
+                  y={order.price}
+                  stroke={getOrderColor(order.status)}
+                  strokeWidth={order.is_current ? 2.5 : 1.5}
+                  strokeOpacity={order.is_current ? 0.8 : 0.6}
+                  strokeDasharray={order.status === "pending" ? "4 4" : "none"}
+                  label={{
+                    value: `Order ${order.order_index} (${order.status})`,
+                    position: "right",
+                    fill: getOrderColor(order.status),
+                    fontSize: 10,
+                    offset: 5,
+                  }}
+                />
+              ))}
+              
               <XAxis
                 dataKey="date"
                 tick={{ fontSize: 11, fill: "oklch(0.65 0 0)" }}
@@ -206,6 +295,7 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
                 width={60}
                 style={{ fontSize: '11px' }}
                 allowDataOverflow={false}
+                ticks={yTicks}
               />
               <ChartTooltip
                 content={({ active, payload }) => {
@@ -231,6 +321,19 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
                             {formatPrice(value)}
                           </span>
                         </div>
+                        {/* Show GTT orders at this price level */}
+                        {gttOrders.filter((o: GTTOrder) => Math.abs(o.price - value) < 0.01).length > 0 && (
+                          <div className="pt-1 border-t border-border space-y-0.5">
+                            <div className="text-xs text-muted-foreground">GTT Orders:</div>
+                            {gttOrders
+                              .filter((o: GTTOrder) => Math.abs(o.price - value) < 0.01)
+                              .map((o: GTTOrder) => (
+                                <div key={o.order_index} className="text-xs" style={{ color: getOrderColor(o.status) }}>
+                                  Order {o.order_index}: {o.status} @ {formatPrice(o.price)}
+                                </div>
+                              ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
@@ -258,4 +361,3 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
     </div>
   )
 }
-
