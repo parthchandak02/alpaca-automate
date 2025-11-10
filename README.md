@@ -203,8 +203,8 @@ Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automa
 2. **Login and create tunnel**:
    ```bash
    cloudflared tunnel login
-   cloudflared tunnel create alpaca-backend
-   cloudflared tunnel route dns alpaca-backend api-your-domain.com
+   cloudflared tunnel create your-app-backend
+   cloudflared tunnel route dns your-app-backend api-your-domain.com
    ```
 
 3. **Get tunnel ID**:
@@ -215,7 +215,7 @@ Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automa
 
 4. **Create config file** (`~/.cloudflared/config.yml`):
    ```yaml
-   tunnel: alpaca-backend
+   tunnel: your-app-backend
    credentials-file: ~/.cloudflared/TUNNEL_ID.json
    
    ingress:
@@ -223,16 +223,17 @@ Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automa
        service: http://localhost:8080
      - service: http_status:404
    ```
-   Replace `TUNNEL_ID` with your actual tunnel ID.
+   Replace `TUNNEL_ID` with your actual tunnel ID and `your-app-backend` with your tunnel name.
 
 5. **Test tunnel**:
    ```bash
-   cloudflared tunnel run alpaca-backend
+   cloudflared tunnel run your-app-backend
    ```
    Should see "Registered tunnel connection" messages.
 
-6. **Add to PM2** (already configured in `config/ecosystem.config.js`):
+6. **Add to PM2** (update `config/ecosystem.config.js` if needed):
    ```bash
+   # Update tunnel name in config/ecosystem.config.js if different from 'alpaca-backend'
    pm2 start config/ecosystem.config.js
    pm2 save
    ```
@@ -248,7 +249,7 @@ Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automa
    - Select your repository
 
 3. **Configure build settings**:
-   - **Project name**: Your choice (e.g., `alpaca`)
+   - **Project name**: Your choice (e.g., `my-app` or `trading-app`)
    - **Production branch**: `main`
    - **Framework preset**: `Next.js` (auto-detected)
    - **Build command**: `cd ui && npm install && npm run build`
@@ -296,7 +297,7 @@ Every `git push` to `main` automatically triggers a new Cloudflare Pages deploym
 **Backend not accessible**:
 - Check tunnel is running: `pm2 logs cloudflare-tunnel`
 - Verify DNS: `dig api-your-domain.com`
-- Check tunnel status: `cloudflared tunnel info alpaca-backend`
+- Check tunnel status: `cloudflared tunnel info your-app-backend`
 
 **Frontend build fails**:
 - Check build logs in Cloudflare Pages dashboard
