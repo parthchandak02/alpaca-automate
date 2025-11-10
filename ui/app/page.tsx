@@ -628,33 +628,63 @@ export default function OrdersPage() {
     }
   }
 
+  // Get tooltip text for order status
+  const getStatusTooltip = (status: string, isCurrent?: boolean): string => {
+    const statusLower = status.toLowerCase()
+    
+    // Status explanations
+    const statusTooltips: Record<string, string> = {
+      "filled": "Order fully executed - All shares have been purchased/sold successfully",
+      "partially_filled": "Order partially executed - Some shares filled, waiting for remaining shares",
+      "pending": isCurrent 
+        ? "GTT order waiting for trigger price - Not yet placed on Alpaca, will place when price condition is met"
+        : "Order not yet placed - Waiting to be submitted to Alpaca",
+      "placed": "Order placed on Alpaca - Live order, buying power locked, waiting to fill",
+      "new": "Order submitted and accepted - Live on Alpaca, buying power locked",
+      "accepted": "Order accepted by Alpaca - Live order, buying power locked",
+      "pending_new": "Order submission pending - Alpaca is processing the order",
+      "pending_replace": "Order modification pending - Alpaca is processing the change",
+      "accepted_for_bidding": "Order accepted for bidding - Live order waiting to fill",
+      "stopped": "Order stopped - Temporarily halted by Alpaca",
+      "suspended": "Order suspended - Temporarily paused by Alpaca",
+      "expired": "Order expired - DAY order wasn't filled by market close (4:00 PM ET). Order automatically cancelled",
+      "rejected": "Order rejected - Alpaca rejected the order (insufficient funds, invalid parameters, market closed, etc.)",
+      "cancelled": "Order cancelled - Manually cancelled or cancelled by system",
+      "canceled": "Order cancelled - Manually cancelled or cancelled by system",
+      "pending_cancel": "Cancellation pending - Request to cancel sent, waiting for confirmation",
+    }
+    
+    return statusTooltips[statusLower] || `Order status: ${status}`
+  }
+
   const getStatusBadge = (status: string, isCurrent?: boolean) => {
     const statusLower = status.toLowerCase()
+    const tooltip = getStatusTooltip(status, isCurrent)
     
     // Filled orders: green (Alpaca's official terminal status - order is fully executed and complete)
     if (statusLower === "filled") {
-      return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">FILLED</Badge>
+      return <Badge className="bg-green-500/20 text-green-400 border-green-500/30 cursor-help" title={tooltip}>FILLED</Badge>
     }
     
     // Partially filled orders: yellow-green (order is partially executed, still waiting for more fills)
     if (statusLower === "partially_filled") {
-      return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">PARTIALLY FILLED</Badge>
+      return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-help" title={tooltip}>PARTIALLY FILLED</Badge>
     }
     
     // Current order that's placed (live, buying power locked): yellow
     // Alpaca statuses: new, accepted = order is live
     if (isCurrent && (statusLower === "new" || statusLower === "accepted" || statusLower === "placed")) {
-      return <Badge className="bg-primary/20 text-primary border-primary/30">PLACED</Badge>
+      return <Badge className="bg-primary/20 text-primary border-primary/30 cursor-help" title={tooltip}>PLACED</Badge>
     }
     
     // Current order that's partially filled: yellow-green
     if (isCurrent && statusLower === "partially_filled") {
-      return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">PARTIALLY FILLED</Badge>
+      return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-help" title={tooltip}>PARTIALLY FILLED</Badge>
     }
     
     // Current order that's still pending (not yet placed): yellow
     if (isCurrent && statusLower === "pending") {
-      return <Badge className="bg-primary/20 text-primary border-primary/30">PENDING</Badge>
+      return <Badge className="bg-primary/20 text-primary border-primary/30 cursor-help" title={tooltip}>PENDING</Badge>
     }
     
     // Orders that are live (placed in Alpaca, buying power locked)
@@ -663,16 +693,36 @@ export default function OrdersPage() {
         statusLower === "pending_new" || statusLower === "pending_replace" || 
         statusLower === "accepted_for_bidding" || statusLower === "stopped" || 
         statusLower === "suspended" || statusLower === "placed") {
-      return <Badge variant="outline" className="bg-muted/50 text-muted-foreground border-border">PLACED</Badge>
+      return <Badge variant="outline" className="bg-muted/50 text-muted-foreground border-border cursor-help" title={tooltip}>PLACED</Badge>
     }
     
     // Pending orders (not yet placed): grayish white
     if (statusLower === "pending") {
-      return <Badge variant="outline" className="bg-muted/50 text-muted-foreground border-border">PENDING</Badge>
+      return <Badge variant="outline" className="bg-muted/50 text-muted-foreground border-border cursor-help" title={tooltip}>PENDING</Badge>
     }
     
-    // Other statuses (cancelled, expired, etc.): display as-is
-    return <Badge variant="outline" className="bg-muted/50 text-muted-foreground border-border">{status.toUpperCase()}</Badge>
+    // Expired orders: red/orange
+    if (statusLower === "expired") {
+      return <Badge variant="outline" className="bg-orange-500/20 text-orange-400 border-orange-500/30 cursor-help" title={tooltip}>EXPIRED</Badge>
+    }
+    
+    // Rejected orders: red
+    if (statusLower === "rejected") {
+      return <Badge variant="outline" className="bg-red-500/20 text-red-400 border-red-500/30 cursor-help" title={tooltip}>REJECTED</Badge>
+    }
+    
+    // Cancelled orders: gray
+    if (statusLower === "cancelled" || statusLower === "canceled") {
+      return <Badge variant="outline" className="bg-muted/50 text-muted-foreground border-border cursor-help" title={tooltip}>CANCELLED</Badge>
+    }
+    
+    // Pending cancel: yellow
+    if (statusLower === "pending_cancel") {
+      return <Badge variant="outline" className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-help" title={tooltip}>PENDING CANCEL</Badge>
+    }
+    
+    // Other statuses: display as-is with tooltip
+    return <Badge variant="outline" className="bg-muted/50 text-muted-foreground border-border cursor-help" title={tooltip}>{status.toUpperCase()}</Badge>
   }
 
   const formatCurrency = (value: number) => {
@@ -834,6 +884,22 @@ export default function OrdersPage() {
         row.original.limit_price ? formatCurrency(row.original.limit_price) : "Market",
     },
     {
+      id: "current_price",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Current Price" filterType="number" />,
+      cell: ({ row }) => {
+        const symbol = row.original.symbol
+        const currentPrice = prices[symbol]
+        if (currentPrice) {
+          return (
+            <span className="font-medium text-foreground">
+              {formatCurrency(currentPrice)}
+            </span>
+          )
+        }
+        return <span className="text-muted-foreground text-xs">—</span>
+      },
+    },
+    {
       id: "filled",
       header: "Filled",
       cell: ({ row }) => (
@@ -860,6 +926,24 @@ export default function OrdersPage() {
             {formatDateTime(dateStr)}
           </span>
         )
+      },
+    },
+    {
+      accessorKey: "id",
+      header: "Order ID",
+      cell: ({ row }) => {
+        const orderId = row.original.id
+        if (orderId) {
+          return (
+            <span 
+              className="font-mono text-xs text-muted-foreground"
+              title={orderId}
+            >
+              {orderId.slice(0, 8)}...
+            </span>
+          )
+        }
+        return <span className="text-muted-foreground text-xs">—</span>
       },
     },
     {
@@ -900,20 +984,41 @@ export default function OrdersPage() {
         const order = row.original
         const symbol = order.symbol
         const symbolGTTOrders = gttBySymbol[symbol] || []
-        const isGTTOrder = gttOrderIds.has(order.id)
         
-        // Find the matching GTT order
-        const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === order.id)
+        // Check if this is a cancelled/expired order that can be reinstated
+        const isCancelledStatus = ["expired", "cancelled", "rejected", "pending_cancel", "canceled"].includes(order.status.toLowerCase())
         
-        // Check if order can be re-instated (expired, cancelled, rejected)
-        const canReinstate = isGTTOrder && matchingGTTOrder && 
-          ["expired", "cancelled", "rejected", "pending_cancel"].includes(order.status.toLowerCase())
-        
-        if (!canReinstate) {
+        if (!isCancelledStatus || symbolGTTOrders.length === 0) {
           return <span className="text-muted-foreground text-xs">—</span>
         }
         
-        const isReinstating = isConfirming(`reinstate-${order.id}`)
+        // Find the matching GTT order by order_id (if order was placed)
+        let matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === order.id)
+        
+        // If no match by order_id, find the first cancelled/expired GTT order for this symbol
+        // This handles cases where order was cancelled/expired before being placed
+        if (!matchingGTTOrder) {
+          const cancelledGTTOrders = symbolGTTOrders.filter(gtt => 
+            ["expired", "cancelled", "rejected", "pending"].includes(gtt.status.toLowerCase())
+          )
+          if (cancelledGTTOrders.length > 0) {
+            // Use the first cancelled GTT order (usually the current one)
+            matchingGTTOrder = cancelledGTTOrders.find(gtt => gtt.is_current) || cancelledGTTOrders[0]
+          }
+        }
+        
+        // Can reinstate if we found a matching GTT order
+        const canReinstate = !!matchingGTTOrder
+        
+        if (!canReinstate || !matchingGTTOrder) {
+          return <span className="text-muted-foreground text-xs">—</span>
+        }
+        
+        // Note: Orders with order_id can still be reinstated.
+        // The old order stays in cancelled orders table (from Alpaca),
+        // and a new order will get a new order_id when placed.
+        
+        const isReinstating = isConfirming(`reinstate-${order.id || `${symbol}-${matchingGTTOrder.order_index}`}`)
         
         return (
           <Button
@@ -923,7 +1028,8 @@ export default function OrdersPage() {
             disabled={isReinstating}
             onClick={async (e) => {
               e.stopPropagation()
-              addConfirmingButton(`reinstate-${order.id}`)
+              const buttonKey = `reinstate-${order.id || `${symbol}-${matchingGTTOrder.order_index}`}`
+              addConfirmingButton(buttonKey)
               
               try {
                 const response = await fetch(`${apiBaseUrl}/api/reinstate-gtt-order`, {
@@ -941,17 +1047,19 @@ export default function OrdersPage() {
                 if (response.ok) {
                   // Refresh data to show updated status
                   refreshData()
-                  // Show success message (you could add a toast notification here)
                   console.log(`Successfully re-instated order for ${symbol}`)
                 } else {
                   console.error(`Failed to re-instate order: ${data.error}`)
-                  alert(`Failed to re-instate order: ${data.error}`)
+                  // Show detailed error message
+                  const errorMsg = data.error || 'Unknown error'
+                  const suggestion = data.suggestion ? `\n\n${data.suggestion}` : ''
+                  alert(`Failed to re-instate order:\n\n${errorMsg}${suggestion}`)
                 }
               } catch (error) {
                 console.error('Error re-instating order:', error)
                 alert(`Error re-instating order: ${error}`)
               } finally {
-                setTimeout(() => removeConfirmingButton(`reinstate-${order.id}`), 2000)
+                setTimeout(() => removeConfirmingButton(buttonKey), 2000)
               }
             }}
           >

@@ -530,7 +530,7 @@ def force_fill_order():
                     qty=target_order.amount,
                     side=OrderSide.BUY,
                     limit_price=target_order.price,
-                    time_in_force=TimeInForce.DAY
+                    time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
                 )
                 
                 placed_order = manager.trading_client.submit_order(order_data=order_request)
@@ -592,7 +592,7 @@ def force_fill_order():
                             qty=next_order.amount,
                             side=OrderSide.BUY,
                             limit_price=next_order.price,
-                            time_in_force=TimeInForce.DAY
+                            time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
                         )
                         
                         placed_order = manager.trading_client.submit_order(order_data=order_request)
@@ -665,7 +665,7 @@ def simulate_fill():
                     qty=current_order.amount,
                     side=OrderSide.BUY,
                     limit_price=current_order.price,
-                    time_in_force=TimeInForce.DAY
+                    time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
                 )
                 
                 placed_order = manager.trading_client.submit_order(order_data=order_request)
@@ -728,7 +728,7 @@ def simulate_fill():
                     qty=next_order.amount,
                     side=OrderSide.BUY,
                     limit_price=next_order.price,
-                    time_in_force=TimeInForce.DAY
+                    time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
                 )
                 
                 placed_order = manager.trading_client.submit_order(order_data=order_request)
@@ -1006,10 +1006,22 @@ def reinstate_gtt_order():
                 "current_status": target_order.status
             }), 400
         
-        # Reset order to pending
+        # IMPORTANT: If order already has an order_id, it was placed on Alpaca.
+        # The cancelled order will remain in the cancelled orders table (fetched from Alpaca).
+        # When we reinstate and place again, it will get a NEW order_id from Alpaca.
+        # So we're safe to reset - the old order stays in cancelled orders, new order gets new ID.
+        old_order_id = target_order.order_id  # Store for logging
         old_status = target_order.status
+        
+        # Reset order to pending (will get new order_id when placed)
         target_order.status = "pending"
-        target_order.order_id = None  # Clear order ID so we can place a new one
+        target_order.order_id = None  # Clear so we can place a new order with new ID
+        
+        # Log if we're resetting an order that had an Alpaca order_id
+        if old_order_id:
+            logger.info(f"Re-instating order {target_order_num} for {symbol} that was previously placed on Alpaca "
+                       f"(old Order ID: {old_order_id}). Old order remains in cancelled orders table. "
+                       f"New order will get a new order_id when placed.")
         
         # If this was not the current order, we may need to adjust the current_order_index
         if order_index is not None and order_index < ladder.current_order_index:
@@ -1021,17 +1033,36 @@ def reinstate_gtt_order():
         
         # Send notification about re-instatement
         total_orders = len(ladder.orders)
+        notification_fields = [
+            {"name": "Symbol", "value": symbol, "inline": True},
+            {"name": "Order", "value": f"{target_order_num}/{total_orders}", "inline": True},
+            {"name": "Previous Status", "value": old_status, "inline": True},
+            {"name": "Limit Price", "value": f"${target_order.price:.2f}", "inline": True},
+            {"name": "Quantity", "value": f"{target_order.amount} shares", "inline": True},
+        ]
+        
+        if old_order_id:
+            notification_fields.append({
+                "name": "Previous Order ID", 
+                "value": f"`{old_order_id}` (remains in cancelled orders)", 
+                "inline": False
+            })
+            notification_fields.append({
+                "name": "Status", 
+                "value": "**Pending** - Will be placed with a NEW order_id when trigger condition is met", 
+                "inline": False
+            })
+        else:
+            notification_fields.append({
+                "name": "Status", 
+                "value": "**Pending** - Will be placed when trigger condition is met", 
+                "inline": False
+            })
+        
         manager._send_email_notification(
             title="🔄 GTT Order Re-instated",
             description=f"{symbol} - Order {target_order_num} of {total_orders} has been re-instated",
-            fields=[
-                {"name": "Symbol", "value": symbol, "inline": True},
-                {"name": "Order", "value": f"{target_order_num}/{total_orders}", "inline": True},
-                {"name": "Previous Status", "value": old_status, "inline": True},
-                {"name": "Limit Price", "value": f"${target_order.price:.2f}", "inline": True},
-                {"name": "Quantity", "value": f"{target_order.amount} shares", "inline": True},
-                {"name": "Status", "value": "**Pending** - Will be placed when trigger condition is met", "inline": False},
-            ],
+            fields=notification_fields,
             footer_text=f"{ladder.company} • Order {target_order_num}/{total_orders} re-instated"
         )
         
@@ -1042,9 +1073,11 @@ def reinstate_gtt_order():
             "order_index": order_index if order_index is not None else ladder.current_order_index,
             "order_num": target_order_num,
             "previous_status": old_status,
+            "previous_order_id": old_order_id,  # Include old order_id in response
             "new_status": "pending",
             "limit_price": target_order.price,
-            "quantity": target_order.amount
+            "quantity": target_order.amount,
+            "note": "Old order remains in cancelled orders table. New order will get a new order_id when placed." if old_order_id else None
         })
     except Exception as e:
         logger.error(f"Error re-instating GTT order: {e}", exc_info=True)

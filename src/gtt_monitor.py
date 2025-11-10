@@ -822,7 +822,7 @@ class GTTOrderManager:
                 qty=order.amount,
                 side=OrderSide.BUY,
                 limit_price=order.price,
-                time_in_force=TimeInForce.DAY
+                time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
             )
             
             placed_order = self.trading_client.submit_order(order_data=order_request)

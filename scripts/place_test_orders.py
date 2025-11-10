@@ -67,7 +67,7 @@ def place_test_orders_ewt():
                 qty=order_data['amount'],
                 side=OrderSide.BUY,
                 limit_price=order_data['price'],
-                time_in_force=TimeInForce.DAY
+                time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
             )
             
             placed_order = manager.trading_client.submit_order(order_data=order_request)

@@ -29,7 +29,10 @@ const timeframeLabels: Record<Timeframe, string> = {
 const chartConfig = {
   close: {
     label: "Price",
-    color: "hsl(var(--chart-1))",
+    theme: {
+      light: "hsl(45, 100%, 50%)", // Yellow for light mode
+      dark: "oklch(0.85 0.15 95)", // Alpaca yellow for dark mode
+    },
   },
 }
 
@@ -50,21 +53,73 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
     }
   )
 
-  const chartData = data?.bars?.map((bar: any) => ({
-    timestamp: new Date(bar.timestamp).getTime(),
-    date: new Date(bar.timestamp).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      ...(timeframe === "1D" && { hour: "numeric", minute: "2-digit" }),
-    }),
-    close: bar.close,
-    open: bar.open,
-    high: bar.high,
-    low: bar.low,
-    volume: bar.volume,
-  })) || []
+  const chartData = data?.bars?.map((bar: any) => {
+    const date = new Date(bar.timestamp)
+    let dateLabel: string
+    
+    if (timeframe === "1D") {
+      // For 1D: Show time only (e.g., "1:50 AM")
+      dateLabel = date.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })
+    } else if (timeframe === "1W" || timeframe === "1M") {
+      // For 1W/1M: Show month and day (e.g., "Nov 10")
+      dateLabel = date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      })
+    } else {
+      // For longer timeframes: Show month and day (e.g., "Nov 10")
+      dateLabel = date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      })
+    }
+    
+    return {
+      timestamp: date.getTime(),
+      date: dateLabel,
+      fullDate: date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: timeframe === "1Y" || timeframe === "MAX" ? "numeric" : undefined,
+      }),
+      time: date.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }),
+      close: bar.close,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      volume: bar.volume,
+    }
+  }) || []
 
   const formatPrice = (value: number) => `$${value.toFixed(2)}`
+  
+  // Calculate proper Y-axis domain with padding
+  const calculateDomain = () => {
+    if (chartData.length === 0) return ["auto", "auto"]
+    
+    const prices = chartData.map((d: any) => d.close)
+    const minPrice = Math.min(...prices)
+    const maxPrice = Math.max(...prices)
+    const priceRange = maxPrice - minPrice
+    
+    // Add 5% padding above and below
+    const padding = priceRange * 0.05
+    
+    return [
+      Math.max(0, minPrice - padding), // Don't go below 0
+      maxPrice + padding
+    ]
+  }
+  
+  const yAxisDomain = calculateDomain()
 
   return (
     <div className="w-full space-y-2">
@@ -75,7 +130,11 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
             key={tf}
             variant={timeframe === tf ? "default" : "outline"}
             size="sm"
-            className="h-7 text-xs px-2"
+            className={`h-7 text-xs px-2 ${
+              timeframe === tf 
+                ? "bg-primary text-primary-foreground border-primary" 
+                : "bg-transparent text-muted-foreground border-border hover:bg-muted/50"
+            }`}
             onClick={() => setTimeframe(tf)}
           >
             {timeframeLabels[tf]}
@@ -98,52 +157,99 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
             No data available
           </div>
         ) : (
-          <ChartContainer config={chartConfig} className="h-full">
-            <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+          <ChartContainer config={chartConfig} className="h-full w-full">
+            <LineChart 
+              data={chartData} 
+              margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
+              width={undefined}
+              height={undefined}
+            >
+              <defs>
+                <linearGradient id={`gradient-${symbol}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="oklch(0.85 0.15 95)" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="oklch(0.85 0.15 95)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              {/* Major gridlines (horizontal) */}
+              <CartesianGrid 
+                strokeDasharray="none" 
+                stroke="oklch(0.25 0 0)" 
+                opacity={0.4}
+                vertical={false}
+                horizontal={true}
+              />
+              {/* Minor gridlines (vertical, subtle) */}
+              <CartesianGrid 
+                strokeDasharray="1 3" 
+                stroke="oklch(0.25 0 0)" 
+                opacity={0.15}
+                vertical={true}
+                horizontal={false}
+              />
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 10 }}
+                tick={{ fontSize: 11, fill: "oklch(0.65 0 0)" }}
                 tickLine={false}
                 axisLine={false}
                 interval="preserveStartEnd"
+                style={{ fontSize: '11px' }}
+                angle={-45}
+                textAnchor="end"
+                height={50}
               />
               <YAxis
-                tick={{ fontSize: 10 }}
+                tick={{ fontSize: 11, fill: "oklch(0.65 0 0)" }}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={formatPrice}
-                domain={["dataMin - 1", "dataMax + 1"]}
+                domain={yAxisDomain}
+                width={60}
+                style={{ fontSize: '11px' }}
+                allowDataOverflow={false}
               />
               <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    formatter={(value) => formatPrice(value as number)}
-                    labelFormatter={(label, payload) => {
-                      const data = payload?.[0]?.payload
-                      if (!data) return label
-                      return (
-                        <div className="space-y-1">
-                          <div className="font-medium">{data.date}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {new Date(data.timestamp).toLocaleTimeString("en-US", {
-                              hour: "numeric",
-                              minute: "2-digit",
-                            })}
-                          </div>
+                content={({ active, payload }) => {
+                  if (!active || !payload || !payload.length) return null
+                  
+                  const data = payload[0].payload
+                  const value = payload[0].value as number
+                  
+                  return (
+                    <div className="bg-card border border-border rounded-lg shadow-lg px-3 py-2 min-w-[140px]">
+                      <div className="space-y-1">
+                        <div className="font-semibold text-foreground text-sm">
+                          {data.fullDate || data.date}
                         </div>
-                      )
-                    }}
-                  />
-                }
+                        {timeframe === "1D" && data.time && (
+                          <div className="text-xs text-muted-foreground">
+                            {data.time}
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-4 pt-1 border-t border-border">
+                          <span className="text-muted-foreground text-xs">Price</span>
+                          <span className="text-foreground font-semibold tabular-nums">
+                            {formatPrice(value)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }}
               />
               <Line
                 type="monotone"
                 dataKey="close"
                 stroke="var(--color-close)"
-                strokeWidth={2}
+                strokeWidth={3}
                 dot={false}
-                activeDot={{ r: 4 }}
+                activeDot={{ 
+                  r: 6, 
+                  fill: "var(--color-close)",
+                  strokeWidth: 3,
+                  stroke: "oklch(0.15 0 0)"
+                }}
+                isAnimationActive={true}
+                animationDuration={300}
               />
             </LineChart>
           </ChartContainer>
