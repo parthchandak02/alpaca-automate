@@ -1161,8 +1161,9 @@ def get_chart_data(symbol: str):
             # Get Alpaca orders for this symbol to get timestamps
             symbol_alpaca_orders = {}
             try:
-                # Fetch orders for this symbol from Alpaca
-                orders_request = GetOrdersRequest(limit=100)
+                # Fetch orders for this symbol from Alpaca - include ALL statuses to get filled orders
+                from alpaca.trading.enums import QueryOrderStatus
+                orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500)  # Get more orders to include filled ones
                 alpaca_orders = manager.trading_client.get_orders(orders_request)
                 for order in alpaca_orders:
                     if order.symbol == symbol:

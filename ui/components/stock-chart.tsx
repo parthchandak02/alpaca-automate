@@ -266,7 +266,7 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
                   strokeOpacity={order.is_current ? 0.8 : 0.6}
                   strokeDasharray={order.status === "pending" ? "4 4" : "none"}
                   label={{
-                    value: `Order ${order.order_index} (${order.status})`,
+                    value: formatPrice(order.price),
                     position: "right",
                     fill: getOrderColor(order.status),
                     fontSize: 10,
