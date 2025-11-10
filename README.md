@@ -185,14 +185,39 @@ pm2 save && pm2 startup                 # Auto-start on boot
 
 ## Deployment
 
-**Quick summary:**
-- **Recommended**: Railway (free tier, always-on, easy GitHub integration)
-- **Cost**: **FREE** ✅ (estimated $0.66/month, Railway gives $5/month credit)
-- **Alternatives**: Render, Fly.io
-- **Not suitable**: GitHub Pages (static sites only)
+**Frontend**: Deploy to Cloudflare Pages → `alpaca.parthchandak.info`  
+**Backend**: Cloudflare Tunnel → `api-alpaca.parthchandak.info`
 
-**Setup:**
-- Deploy backend and frontend as separate Railway services
-- Configure environment variables in Railway dashboard
-- Railway auto-detects Python/Node.js and handles deployment
-- Updates: Just push to GitHub (Railway auto-deploys)
+### Quick Setup
+
+1. **Cloudflare Pages (Frontend)**:
+   - Go to Cloudflare Dashboard → Workers & Pages → Pages
+   - Connect GitHub repo: `parthchandak02/alpaca-automate`
+   - Build command: `cd ui && npm install && npm run build`
+   - Build output: `ui`
+   - Add custom domain: `alpaca.parthchandak.info`
+   - Environment variables:
+     - `NEXT_PUBLIC_API_HOST` = `api-alpaca.parthchandak.info`
+     - `NEXT_PUBLIC_API_PORT` = `443`
+
+2. **Cloudflare Tunnel (Backend)**:
+   ```bash
+   cloudflared tunnel login
+   cloudflared tunnel create alpaca-backend
+   cloudflared tunnel route dns alpaca-backend api-alpaca.parthchandak.info
+   ```
+   Then update `~/.cloudflared/config.yml`:
+   ```yaml
+   tunnel: alpaca-backend
+   credentials-file: ~/.cloudflared/TUNNEL_ID.json
+   ingress:
+     - hostname: api-alpaca.parthchandak.info
+       service: http://localhost:8080
+     - service: http_status:404
+   ```
+   Add to PM2 (already in `config/ecosystem.config.js`):
+   ```bash
+   pm2 start config/ecosystem.config.js
+   ```
+
+**Auto-deploy**: Every `git push` to `main` automatically deploys frontend.

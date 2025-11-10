@@ -92,6 +92,34 @@ module.exports = {
       listen_timeout: 3000,
       shutdown_with_message: true,
     },
+    
+    // Cloudflare Tunnel - Expose app to internet securely
+    {
+      name: 'cloudflare-tunnel',
+      script: 'cloudflared',
+      args: 'tunnel run alpaca-backend',
+      cwd: PROJECT_ROOT,
+      interpreter: 'none',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      env: {
+        // Optional: Enable metrics
+        TUNNEL_METRICS: '0.0.0.0:9090',
+      },
+      error_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-error.log'),
+      out_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-out.log'),
+      log_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-combined.log'),
+      time: true,
+      merge_logs: true,
+      max_size: '2M',
+      retain: 2,
+      restart_delay: 5000,
+      max_restarts: 10,
+      min_uptime: '10s',
+      kill_timeout: 10000,
+    },
   ],
 };
 

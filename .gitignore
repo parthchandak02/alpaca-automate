@@ -11,13 +11,18 @@ venv/
 ENV/
 env/
 
-# Logs
+# Logs (all log files should be ignored)
 *.log
-logs/*.log
+logs/
+ui/logs/
+ui/.next/
+ui/npm-install.log
+logs/cloudflare-tunnel-*.log
 
 # Environment variables
 .env
 .env.local
+.env.new
 
 # IDE
 .vscode/

@@ -257,15 +257,65 @@ class CSVFileHandler(FileSystemEventHandler):
 class GTTOrderManager:
     """Manages GTT-style sequential conditional orders"""
     
-    def __init__(self, api_key: str, secret_key: str, paper: bool = True):
-        self.trading_client = TradingClient(api_key, secret_key, paper=paper)
-        self.data_client = StockHistoricalDataClient(api_key, secret_key)
-        self.stream = StockDataStream(api_key, secret_key)
+    def __init__(self, api_key: str, secret_key: str, paper: bool = True, 
+                 trading_base_url: Optional[str] = None, data_base_url: Optional[str] = None):
+        """
+        Initialize GTT Order Manager
+        
+        Args:
+            api_key: Alpaca API key
+            secret_key: Alpaca secret key
+            paper: Whether to use paper trading (default: True)
+            trading_base_url: Custom trading API base URL (optional)
+            data_base_url: Custom data API base URL (optional)
+        """
+        # Determine trading API URL
+        # Priority: 1) Custom trading_base_url param, 2) ALPACA_TRADING_API_URL env var, 3) Default based on paper mode
+        if trading_base_url:
+            trading_url = trading_base_url
+        elif os.getenv('ALPACA_TRADING_API_URL'):
+            trading_url = os.getenv('ALPACA_TRADING_API_URL')
+        elif paper:
+            trading_url = os.getenv('ALPACA_PAPER_API_URL', 'https://paper-api.alpaca.markets/v2')
+        else:
+            trading_url = os.getenv('ALPACA_LIVE_API_URL', 'https://api.alpaca.markets')
+        
+        # Determine data API URL
+        # Priority: 1) Custom data_base_url param, 2) ALPACA_DATA_API_URL env var, 3) Default
+        if data_base_url:
+            data_url = data_base_url
+        elif os.getenv('ALPACA_DATA_API_URL'):
+            data_url = os.getenv('ALPACA_DATA_API_URL')
+        else:
+            data_url = 'https://data.alpaca.markets/v2'
+        
+        # Initialize clients
+        # Note: Only TradingClient supports base_url parameter
+        # StockHistoricalDataClient and StockDataStream use environment variables or default URLs
+        trading_kwargs = {'api_key': api_key, 'secret_key': secret_key, 'paper': paper}
+        if trading_base_url or os.getenv('ALPACA_TRADING_API_URL'):
+            # Override SDK's automatic URL selection with custom URL (only for TradingClient)
+            trading_kwargs['base_url'] = trading_url
+        
+        self.trading_client = TradingClient(**trading_kwargs)
+        
+        # Data clients don't support base_url parameter - they use environment variables
+        # Set environment variables if custom URLs are provided
+        if data_base_url or os.getenv('ALPACA_DATA_API_URL'):
+            # Set environment variable for data clients to use
+            os.environ['APCA_API_DATA_URL'] = data_url
+        
+        # Initialize data clients (they will use APCA_API_DATA_URL env var if set)
+        self.data_client = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
+        self.stream = StockDataStream(api_key=api_key, secret_key=secret_key)
         
         self.ladders: Dict[str, SymbolLadder] = {}  # symbol -> ladder
         
         # Initialize notification manager
         self.notification_manager = NotificationManager(self)
+        
+        # Log which API URLs are being used
+        logger.info(f"Initialized Alpaca clients - Paper: {paper}, Trading URL: {trading_url}, Data URL: {data_url}")
     
     def _parse_price(self, price_str: str) -> Optional[float]:
         """Parse price string, handling $ and commas"""
@@ -1262,12 +1312,22 @@ def main():
     secret_key = os.getenv('ALPACA_SECRET_KEY')
     paper = os.getenv('ALPACA_PAPER', 'true').lower() == 'true'
     
+    # Get API URLs from environment (with defaults)
+    trading_base_url = os.getenv('ALPACA_TRADING_API_URL')
+    data_base_url = os.getenv('ALPACA_DATA_API_URL')
+    
     if not api_key or not secret_key:
         console.print("[bold red]ERROR:[/bold red] ALPACA_API_KEY and ALPACA_SECRET_KEY must be set in .env file")
         return
     
-    # Initialize GTT manager
-    manager = GTTOrderManager(api_key, secret_key, paper=paper)
+    # Initialize GTT manager with custom URLs if provided
+    manager = GTTOrderManager(
+        api_key=api_key, 
+        secret_key=secret_key, 
+        paper=paper,
+        trading_base_url=trading_base_url,
+        data_base_url=data_base_url
+    )
     
     # Start API server in a separate thread
     import threading
