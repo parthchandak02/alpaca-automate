@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Completely disable dev indicator in development mode
   devIndicators: false,
+  // Static export for Cloudflare Pages
+  output: 'export',
+  trailingSlash: true,
 };
 
 export default nextConfig;

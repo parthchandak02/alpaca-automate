@@ -253,7 +253,7 @@ Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automa
    - **Production branch**: `main`
    - **Framework preset**: `Next.js` (auto-detected)
    - **Build command**: `cd ui && npm install && npm run build`
-   - **Build output directory**: `ui` (or leave empty - auto-detects)
+   - **Build output directory**: Leave empty (auto-detects for Next.js)
    - **Root directory**: Leave empty
 
 4. **Add environment variables** (before deploying):
@@ -277,6 +277,98 @@ Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automa
    - Click **Set up a custom domain**
    - Enter your domain (e.g., `your-domain.com`)
    - Cloudflare auto-configures DNS and SSL
+   - Status will show "Initializing" → "Active" (can take up to 48 hours)
+
+### Custom Domains Setup
+
+Both frontend and backend need custom domains configured. Follow these steps:
+
+#### Frontend Custom Domain (Cloudflare Pages)
+
+1. **After deployment succeeds**:
+   - Go to Cloudflare Dashboard → **Workers & Pages** → Your project → **Custom domains** tab
+   - Click **Set up a custom domain**
+   - Enter your domain (e.g., `your-domain.com` or `app.your-domain.com`)
+   - Click **Continue**
+
+2. **DNS Configuration**:
+   - Cloudflare automatically creates DNS records (CNAME)
+   - Status will show "Initializing" → "Active"
+   - **DNS propagation**: Can take up to 48 hours, but usually works within minutes
+
+3. **Verify**:
+   ```bash
+   # Check DNS propagation
+   dig your-domain.com
+   
+   # Test HTTPS access
+   curl -I https://your-domain.com
+   ```
+
+#### Backend Custom Domain (Cloudflare Tunnel)
+
+The backend custom domain is configured when you create the tunnel DNS route:
+
+```bash
+cloudflared tunnel route dns your-app-backend api-your-domain.com
+```
+
+This command automatically:
+- Creates a CNAME DNS record pointing `api-your-domain.com` to your tunnel
+- Configures SSL/TLS automatically
+- Sets up routing to your local backend
+
+**Verify backend DNS**:
+```bash
+# Check DNS record exists
+dig api-your-domain.com
+
+# Should show CNAME pointing to tunnel hostname
+# Test backend API
+curl https://api-your-domain.com/api/status
+```
+
+**If DNS route wasn't created**:
+```bash
+# Create it manually
+cloudflared tunnel route dns your-app-backend api-your-domain.com
+
+# Or verify tunnel is running
+cloudflared tunnel list
+pm2 logs cloudflare-tunnel
+```
+
+#### Custom Domain Status
+
+**Frontend (Pages)**:
+- Status visible in Cloudflare Dashboard → Pages → Custom domains tab
+- "Initializing" → "Active" (usually 5-30 minutes)
+- If stuck, check DNS records in Cloudflare DNS dashboard
+
+**Backend (Tunnel)**:
+- DNS route created automatically via `cloudflared tunnel route dns`
+- Check DNS: `dig api-your-domain.com` (should show CNAME)
+- Check tunnel: `cloudflared tunnel info your-app-backend`
+- Verify tunnel is running: `pm2 status cloudflare-tunnel`
+
+#### Troubleshooting Custom Domains
+
+**Frontend domain not working**:
+- Wait 5-30 minutes for DNS propagation
+- Check DNS records in Cloudflare Dashboard → DNS
+- Verify domain is added in Pages → Custom domains tab
+- Check deployment is active: `wrangler pages deployment list --project-name=your-project`
+
+**Backend domain not working**:
+- Verify tunnel DNS route: `cloudflared tunnel route dns list`
+- Check tunnel is running: `pm2 logs cloudflare-tunnel`
+- Verify DNS record exists: `dig api-your-domain.com`
+- Test tunnel directly: `curl https://api-your-domain.com/api/status`
+
+**Both domains working but frontend can't reach backend**:
+- Verify `NEXT_PUBLIC_API_HOST` environment variable matches backend domain
+- Check CORS settings in Flask backend (should allow your frontend domain)
+- Ensure backend tunnel is running and accessible
 
 ### Testing
 
@@ -291,6 +383,48 @@ open https://your-domain.com
 ### Auto-Deployment
 
 Every `git push` to `main` automatically triggers a new Cloudflare Pages deployment. Check **Deployments** tab in Cloudflare Pages dashboard to see build status.
+
+### Using Wrangler CLI (Terminal Management)
+
+**Setup** (one-time):
+1. Get API token from: https://dash.cloudflare.com/profile/api-tokens
+   - Use "Edit Cloudflare Workers" template
+   - Copy token and add to `.env`: `CLOUDFLARE_API_TOKEN=your-token`
+   - Add account ID: `CLOUDFLARE_ACCOUNT_ID=your-account-id`
+
+**Quick Start**:
+```bash
+# Load Cloudflare token from .env
+export $(grep CLOUDFLARE_API_TOKEN .env | xargs)
+
+# Check deployment status
+wrangler pages deployment list --project-name=your-project
+
+# View logs
+wrangler pages deployment tail --project-name=your-project
+
+# List all Pages projects
+wrangler pages project list
+
+# Trigger manual deployment
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/your-project/deployments" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"branch":"main"}'
+```
+
+**Note**: Token is stored in `.env` (not in `~/.zshrc` for security). Export it per-session when needed.
+
+**Common Commands**:
+```bash
+# Check tunnel status
+cloudflared tunnel list
+cloudflared tunnel info your-app-backend
+
+# Check PM2 processes
+pm2 status
+pm2 logs cloudflare-tunnel
+```
 
 ### Troubleshooting
 
