@@ -233,7 +233,7 @@ Deploy frontend to Cloudflare Pages and backend via Cloudflare Tunnel for automa
 
 6. **Add to PM2** (update `config/ecosystem.config.js` if needed):
    ```bash
-   # Update tunnel name in config/ecosystem.config.js if different from 'alpaca-backend'
+   # Update tunnel name in config/ecosystem.config.js to match your tunnel name
    pm2 start config/ecosystem.config.js
    pm2 save
    ```
