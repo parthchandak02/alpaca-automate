@@ -217,7 +217,7 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
           <ChartContainer config={chartConfig} className="h-full w-full">
             <LineChart 
               data={chartData} 
-              margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
+              margin={{ top: 10, right: 80, left: 10, bottom: 10 }}
               width={undefined}
               height={undefined}
             >
