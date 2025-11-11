@@ -43,11 +43,11 @@ module.exports = {
         EMAIL_TO: process.env.EMAIL_TO,
         USE_TEST_CSV: process.env.USE_TEST_CSV || 'true',
       },
-      // Separate log files for backend
+      // Single combined log file (merge_logs: true combines stdout/stderr)
       // Note: Log rotation is handled by pm2-logrotate module (10MB max, 3 retained)
-      error_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-error.log'),
-      out_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-out.log'),
-      log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-combined.log'),
+      error_file: '/dev/null', // Disabled - using combined log only
+      out_file: '/dev/null',   // Disabled - using combined log only
+      log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend.log'),
       time: true,
       merge_logs: true,
       restart_delay: 5000,
@@ -76,11 +76,11 @@ module.exports = {
         NEXT_PUBLIC_API_PORT: process.env.NEXT_PUBLIC_API_PORT || process.env.PORT_API || '8080',
         NEXT_PUBLIC_API_HOST: process.env.NEXT_PUBLIC_API_HOST, // For production (Railway)
       },
-      // Separate log files for frontend
+      // Single combined log file (merge_logs: true combines stdout/stderr)
       // Note: Log rotation is handled by pm2-logrotate module (10MB max, 3 retained)
-      error_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-error.log'),
-      out_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-out.log'),
-      log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-combined.log'),
+      error_file: '/dev/null', // Disabled - using combined log only
+      out_file: '/dev/null',   // Disabled - using combined log only
+      log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend.log'),
       time: true,
       merge_logs: true,
       restart_delay: 5000,
@@ -106,10 +106,11 @@ module.exports = {
         // Optional: Enable metrics
         TUNNEL_METRICS: '0.0.0.0:9090',
       },
+      // Single combined log file (merge_logs: true combines stdout/stderr)
       // Note: Log rotation is handled by pm2-logrotate module (10MB max, 3 retained)
-      error_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-error.log'),
-      out_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-out.log'),
-      log_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-combined.log'),
+      error_file: '/dev/null', // Disabled - using combined log only
+      out_file: '/dev/null',   // Disabled - using combined log only
+      log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-cloudflare-tunnel.log'),
       time: true,
       merge_logs: true,
       restart_delay: 5000,
