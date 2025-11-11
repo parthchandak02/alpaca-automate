@@ -1677,22 +1677,22 @@ export default function OrdersPage() {
 
         {/* Tabs */}
         <Tabs defaultValue="stocks-orders" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="stocks-orders" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              <span>Stock/ETF Orders</span>
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1">
+            <TabsTrigger value="stocks-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap">
+              <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span className="text-center leading-tight">Stock/ETF Orders</span>
             </TabsTrigger>
-            <TabsTrigger value="stocks-gtt" className="flex items-center gap-2">
-              <Target className="h-4 w-4" />
-              <span>Stock/ETF GTT</span>
+            <TabsTrigger value="stocks-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap">
+              <Target className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span className="text-center leading-tight">Stock/ETF GTT</span>
             </TabsTrigger>
-            <TabsTrigger value="crypto-orders" className="flex items-center gap-2">
-              <Coins className="h-4 w-4" />
-              <span>Crypto Orders</span>
+            <TabsTrigger value="crypto-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap">
+              <Coins className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span className="text-center leading-tight">Crypto Orders</span>
             </TabsTrigger>
-            <TabsTrigger value="crypto-gtt" className="flex items-center gap-2">
-              <Zap className="h-4 w-4" />
-              <span>Crypto GTT</span>
+            <TabsTrigger value="crypto-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap">
+              <Zap className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span className="text-center leading-tight">Crypto GTT</span>
             </TabsTrigger>
           </TabsList>
 
