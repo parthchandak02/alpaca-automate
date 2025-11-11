@@ -774,8 +774,18 @@ class GTTOrderManager:
                     matched_alpaca_order = None
                     
                     # First try: Match by order_id if we have it
-                    if gtt_order.order_id and gtt_order.order_id in alpaca_orders_by_id:
-                        matched_alpaca_order = alpaca_orders_by_id[gtt_order.order_id]
+                    # Convert order_id to string for comparison (Alpaca uses UUID objects)
+                    if gtt_order.order_id:
+                        gtt_order_id_str = str(gtt_order.order_id)
+                        # Check both string and UUID object versions
+                        if gtt_order_id_str in alpaca_orders_by_id:
+                            matched_alpaca_order = alpaca_orders_by_id[gtt_order_id_str]
+                        else:
+                            # Try matching by UUID object
+                            for alp_id, alp_order in alpaca_orders_by_id.items():
+                                if str(alp_id) == gtt_order_id_str:
+                                    matched_alpaca_order = alp_order
+                                    break
                     else:
                         # Second try: Match by symbol + limit_price + quantity (fuzzy match)
                         for alpaca_order in symbol_alpaca_orders:
@@ -796,16 +806,19 @@ class GTTOrderManager:
                             if hasattr(matched_alpaca_order, 'filled_at') and matched_alpaca_order.filled_at:
                                 filled_at = matched_alpaca_order.filled_at.isoformat() if hasattr(matched_alpaca_order.filled_at, 'isoformat') else str(matched_alpaca_order.filled_at)
                         
+                        # Convert order_id to string (Alpaca returns UUID objects)
+                        alpaca_order_id_str = str(matched_alpaca_order.id)
+                        
                         # Update if status changed or order_id is missing
                         if (gtt_order.status.lower() != alpaca_status_lower or 
-                            gtt_order.order_id != matched_alpaca_order.id):
+                            gtt_order.order_id != alpaca_order_id_str):
                             
                             # Update ladder order
-                            gtt_order.order_id = matched_alpaca_order.id
+                            gtt_order.order_id = alpaca_order_id_str
                             gtt_order.status = alpaca_status_lower
                             
                             # Update database
-                            self.db.update_order_status(symbol, idx, alpaca_status_lower, matched_alpaca_order.id, filled_at)
+                            self.db.update_order_status(symbol, idx, alpaca_status_lower, alpaca_order_id_str, filled_at)
                             
                             # Link completed order if filled
                             if alpaca_status_lower == "filled":
@@ -815,7 +828,7 @@ class GTTOrderManager:
                                         gtt_order_id = db_orders[idx].id
                                         self.db.link_completed_order(
                                             gtt_order_id=gtt_order_id,
-                                            alpaca_order_id=matched_alpaca_order.id,
+                                            alpaca_order_id=alpaca_order_id_str,
                                             symbol=symbol,
                                             filled_at=filled_at
                                         )
@@ -825,7 +838,7 @@ class GTTOrderManager:
                             updated_count += 1
                             logger.info(f"SYNCED FILLED: {symbol} Order {idx + 1} - "
                                       f"Status: {gtt_order.status} → {alpaca_status_lower}, "
-                                      f"Order ID: {matched_alpaca_order.id}")
+                                      f"Order ID: {alpaca_order_id_str}")
                             
                             if gtt_order.status.lower() != alpaca_status_lower:
                                 synced_count += 1
