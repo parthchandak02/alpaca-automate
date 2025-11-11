@@ -1356,6 +1356,30 @@ export default function OrdersPage() {
       },
     },
     {
+      accessorKey: "symbol",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Symbol" filterType="text" />,
+      cell: ({ row }) => {
+        const order = row.original
+        return (
+          <div className="flex items-center gap-2">
+            {order.symbol}
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: "company",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Description" />,
+      cell: ({ row }) => {
+        const order = row.original
+        return (
+          <div className="flex items-center gap-2">
+            {order.company || '-'}
+          </div>
+        )
+      },
+    },
+    {
       accessorKey: "amount",
       header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Amount" filterType="number" />,
       cell: ({ row }) => {
