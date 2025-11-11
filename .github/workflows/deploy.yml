@@ -33,15 +33,17 @@ jobs:
         run: |
           echo "Checking required environment variables..."
           if [ -z "${{ secrets.NEXT_PUBLIC_API_HOST }}" ]; then
-            echo "❌ NEXT_PUBLIC_API_HOST is not set"
-            exit 1
+            echo "⚠️  WARNING: NEXT_PUBLIC_API_HOST is not set in GitHub secrets"
+            echo "   Make sure it's set in Cloudflare Pages environment variables"
+          else
+            echo "✅ NEXT_PUBLIC_API_HOST is set"
           fi
           if [ -z "${{ secrets.NEXT_PUBLIC_API_PORT }}" ]; then
-            echo "❌ NEXT_PUBLIC_API_PORT is not set"
-            exit 1
+            echo "⚠️  WARNING: NEXT_PUBLIC_API_PORT is not set in GitHub secrets"
+            echo "   Make sure it's set in Cloudflare Pages environment variables"
+          else
+            echo "✅ NEXT_PUBLIC_API_PORT is set"
           fi
-          echo "✅ NEXT_PUBLIC_API_HOST: ${{ secrets.NEXT_PUBLIC_API_HOST }}"
-          echo "✅ NEXT_PUBLIC_API_PORT: ${{ secrets.NEXT_PUBLIC_API_PORT }}"
 
       - name: Build Next.js app
         working-directory: ./ui
