@@ -247,11 +247,23 @@ export default function OrdersPage() {
   
   // Check authentication on mount - protect page client-side
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout
+    let isMounted = true
+    
     const checkAuth = async () => {
       try {
+        // Add timeout to prevent hanging
+        const controller = new AbortController()
+        timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+        
         const response = await fetch(`${apiBaseUrl}/api/auth/verify`, {
           credentials: 'include',
+          signal: controller.signal,
         })
+        
+        clearTimeout(timeoutId)
+        
+        if (!isMounted) return
         
         if (response.ok) {
           const data = await response.json()
@@ -261,8 +273,19 @@ export default function OrdersPage() {
           }
         }
       } catch (err) {
-        // Ignore errors
+        clearTimeout(timeoutId)
+        if (!isMounted) return
+        
+        // Log error for debugging
+        console.error('Auth check failed:', err)
+        
+        // If it's an abort error (timeout), show error state
+        if (err instanceof Error && err.name === 'AbortError') {
+          console.error('Auth check timed out after 10 seconds')
+        }
       }
+      
+      if (!isMounted) return
       
       // Not authenticated - redirect to login
       setIsAuthenticated(false)
@@ -270,6 +293,11 @@ export default function OrdersPage() {
     }
     
     checkAuth()
+    
+    return () => {
+      isMounted = false
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [router, apiBaseUrl])
   
   // SWR hooks for data fetching - automatic polling, no full page refresh
