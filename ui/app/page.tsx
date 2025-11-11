@@ -2138,9 +2138,9 @@ export default function OrdersPage() {
                     <AccordionItem key={symbol} value={symbol} className="border-none">
                       <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
                         <CardHeader className="p-1.5 sm:p-2">
-                          <AccordionTrigger className="hover:no-underline py-0 items-center">
-                            <div className="flex flex-col sm:flex-row items-center sm:items-center justify-between w-full pr-2 gap-1 sm:gap-1">
-                              <div className="text-left flex-1 min-w-0">
+                          <AccordionTrigger className="hover:no-underline py-0 items-start">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-2 gap-2 sm:gap-1">
+                              <div className="text-left flex-1 min-w-0 w-full sm:w-auto">
                                 <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
                                   {symbol}
                                   {isUnavailable && (
@@ -2152,7 +2152,7 @@ export default function OrdersPage() {
                                 </CardDescription>
                               </div>
                               
-                              <div className="flex flex-col sm:flex-row gap-1 ml-0.5 sm:ml-1 flex-shrink-0">
+                              <div className="flex flex-col sm:flex-row gap-1 sm:ml-1 flex-shrink-0 self-end sm:self-auto">
                                 <div className="flex flex-wrap items-center gap-1 overflow-visible">
                                   {currentPrice && (
                                     <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1 overflow-visible relative">
@@ -2628,9 +2628,9 @@ export default function OrdersPage() {
                     <AccordionItem key={symbol} value={symbol} className="border-none">
                       <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
                         <CardHeader className="p-1.5 sm:p-2">
-                          <AccordionTrigger className="hover:no-underline py-0 items-center">
-                            <div className="flex flex-col sm:flex-row items-center sm:items-center justify-between w-full pr-2 gap-1 sm:gap-1">
-                              <div className="text-left flex-1 min-w-0">
+                          <AccordionTrigger className="hover:no-underline py-0 items-start">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-2 gap-2 sm:gap-1">
+                              <div className="text-left flex-1 min-w-0 w-full sm:w-auto">
                                 <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
                                   {symbol}
                                   {isUnavailable && (
@@ -2642,7 +2642,7 @@ export default function OrdersPage() {
                                 </CardDescription>
                               </div>
                               
-                              <div className="flex flex-col sm:flex-row gap-1 ml-0.5 sm:ml-1 flex-shrink-0">
+                              <div className="flex flex-col sm:flex-row gap-1 sm:ml-1 flex-shrink-0 self-end sm:self-auto">
                                 <div className="flex flex-wrap items-center gap-1 overflow-visible">
                                   {currentPrice && (
                                     <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1 overflow-visible relative">
