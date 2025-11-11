@@ -1464,25 +1464,51 @@ export default function OrdersPage() {
   const stocksOrderCategories = useMemo(() => categorizeOrders(stocksActiveOrders), [stocksActiveOrders])
   const cryptoOrderCategories = useMemo(() => categorizeOrders(cryptoActiveOrders), [cryptoActiveOrders])
   
-  // Show loading while checking auth
+  // Show loading while checking auth - use explicit colors to prevent black screen
   if (isAuthenticated === null) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div 
+        className="min-h-screen flex items-center justify-center" 
+        style={{ 
+          backgroundColor: 'oklch(0.1 0 0)', 
+          minHeight: '100vh',
+          color: 'oklch(0.95 0 0)'
+        }}
+      >
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground">Checking authentication...</p>
+          <div 
+            className="w-8 h-8 border-2 rounded-full animate-spin" 
+            style={{ 
+              borderColor: 'oklch(0.5 0.2 250 / 0.2)', 
+              borderTopColor: 'oklch(0.7 0.2 250)' 
+            }} 
+          />
+          <p className="text-sm" style={{ color: 'oklch(0.65 0 0)' }}>Checking authentication...</p>
         </div>
       </div>
     )
   }
   
-  // Redirect if not authenticated (handled by useEffect, but show loading)
+  // Redirect if not authenticated (handled by useEffect, but show loading) - use explicit colors
   if (isAuthenticated === false) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div 
+        className="min-h-screen flex items-center justify-center" 
+        style={{ 
+          backgroundColor: 'oklch(0.1 0 0)', 
+          minHeight: '100vh',
+          color: 'oklch(0.95 0 0)'
+        }}
+      >
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground">Redirecting to login...</p>
+          <div 
+            className="w-8 h-8 border-2 rounded-full animate-spin" 
+            style={{ 
+              borderColor: 'oklch(0.5 0.2 250 / 0.2)', 
+              borderTopColor: 'oklch(0.7 0.2 250)' 
+            }} 
+          />
+          <p className="text-sm" style={{ color: 'oklch(0.65 0 0)' }}>Redirecting to login...</p>
         </div>
       </div>
     )
