@@ -68,11 +68,11 @@ os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, 'gtt_orders.log')
 
 # Use RotatingFileHandler to prevent log files from growing too large
-# maxBytes: 2MB per file, backupCount: keep 2 rotated files (total ~6MB max) - minimal retention
+# maxBytes: 10MB per file, backupCount: 0 (no backups - only keep current log)
 file_handler = RotatingFileHandler(
     log_file,
-    maxBytes=2 * 1024 * 1024,  # 2MB
-    backupCount=2,  # Keep only 2 backup files (minimal)
+    maxBytes=10 * 1024 * 1024,  # 10MB
+    backupCount=0,  # No backup files - only keep current log
     encoding='utf-8'
 )
 
