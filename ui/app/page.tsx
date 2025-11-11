@@ -1695,22 +1695,22 @@ export default function OrdersPage() {
 
         {/* Tabs */}
         <Tabs defaultValue="stocks-orders" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1">
-            <TabsTrigger value="stocks-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1 h-auto sm:h-9">
+            <TabsTrigger value="stocks-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400">
               <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span className="text-center leading-tight">Stock/ETF Orders</span>
+              <span className="text-center leading-tight break-words">Stock/ETF Orders</span>
             </TabsTrigger>
-            <TabsTrigger value="stocks-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400">
+            <TabsTrigger value="stocks-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400">
               <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span className="text-center leading-tight">Stock/ETF GTT</span>
+              <span className="text-center leading-tight break-words">Stock/ETF GTT</span>
             </TabsTrigger>
-            <TabsTrigger value="crypto-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400">
+            <TabsTrigger value="crypto-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400">
               <Wallet className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span className="text-center leading-tight">Crypto Orders</span>
+              <span className="text-center leading-tight break-words">Crypto Orders</span>
             </TabsTrigger>
-            <TabsTrigger value="crypto-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400">
+            <TabsTrigger value="crypto-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400">
               <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span className="text-center leading-tight">Crypto GTT</span>
+              <span className="text-center leading-tight break-words">Crypto GTT</span>
             </TabsTrigger>
           </TabsList>
 
