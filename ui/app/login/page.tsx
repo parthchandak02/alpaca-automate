@@ -99,7 +99,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-md" style={{ backgroundColor: 'var(--card)', color: 'var(--card-foreground)' }}>
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-2">
             <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-card border border-primary/30 flex items-center justify-center">
@@ -111,15 +111,15 @@ export default function LoginPage() {
               />
             </div>
           </div>
-          <CardTitle className="text-2xl text-center">Alpaca Order Manager</CardTitle>
-          <CardDescription className="text-center">
+          <CardTitle className="text-2xl text-center" style={{ color: 'var(--card-foreground)' }}>Alpaca Order Manager</CardTitle>
+          <CardDescription className="text-center" style={{ color: 'var(--muted-foreground)' }}>
             Enter your password to access the trading dashboard
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password" style={{ color: 'var(--foreground)' }}>Password</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -131,6 +131,7 @@ export default function LoginPage() {
                   className="pl-9"
                   disabled={isLoading}
                   autoFocus
+                  style={{ backgroundColor: 'var(--input)', color: 'var(--foreground)', borderColor: 'var(--border)' }}
                 />
               </div>
             </div>
