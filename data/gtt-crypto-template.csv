@@ -1,0 +1,5 @@
+Company,Symbol,Amt 1,Price 1,Amt 2,Price 2,Amt 3,Price 3,Amt 4,Price 4,Amt 5,Price 5,Amt 6,Price 6,Amt 7,Price 7,Amt 8,Price 8,Recurring Amount,Notes
+Bitcoin,BTC,0.001,$35000,0.002,$33000,0.003,$31000,0.005,$29000,0.008,$27000,0.012,$25000,0.018,$23000,0.027,$21000,,
+Ethereum,ETH,0.01,$3000,0.02,$2800,0.03,$2600,0.05,$2400,0.08,$2200,0.12,$2000,0.18,$1800,0.27,$1600,,
+Example Crypto Symbol,EXAMPLE,0.1,$100.00,0.2,$95.00,0.3,$90.00,,,,,,,,,,
+

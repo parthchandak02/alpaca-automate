@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { StockChart } from "@/components/stock-chart"
 import { ColumnDef } from "@tanstack/react-table"
-import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles, ExternalLink } from "lucide-react"
+import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles, ExternalLink, Download, FileText, AlertTriangle, LogOut } from "lucide-react"
 
 // Reusable Icon Tooltip Component
 interface IconTooltipProps {
@@ -198,6 +198,7 @@ interface GTTOrder {
   is_current: boolean
   is_available_on_alpaca?: boolean
   asset_type?: string  // 'stock' or 'crypto'
+  reinstated?: boolean  // Whether this order has been reinstated before
 }
 
 interface AccountInfo {
@@ -216,6 +217,26 @@ interface MarketStatus {
   is_open: boolean | null
   next_open: string | null
   next_close: string | null
+}
+
+interface Position {
+  asset_id: string | null
+  symbol: string
+  display_symbol: string
+  exchange: string
+  asset_class: string
+  qty: number
+  side: string
+  market_value: number
+  avg_entry_price: number
+  cost_basis: number
+  unrealized_pl: number
+  unrealized_plpc: number
+  current_price: number
+  lastday_price: number | null
+  change_today: number | null
+  today_pl: number | null
+  today_plpc: number | null
 }
 
 export default function OrdersPage() {
@@ -245,16 +266,44 @@ export default function OrdersPage() {
   const portSuffix = (apiPort === '443' || apiPort === '80') ? '' : `:${apiPort}`
   const apiBaseUrl = `${protocol}://${apiHost}${portSuffix}`
   
+  // Logout handler
+  const handleLogout = async () => {
+    try {
+      await fetch(`${apiBaseUrl}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+    } catch (err) {
+      console.error('Logout error:', err)
+    }
+    // Always redirect to login, even if logout API call fails
+    window.location.href = '/login'
+  }
+
   // Check authentication on mount - protect page client-side
   useEffect(() => {
     let timeoutId: NodeJS.Timeout
     let isMounted = true
+    let retryCount = 0
+    let authResolved = false // Track if auth check has completed
+    const maxRetries = 2 // Reduced retries to fail faster
+    const maxTotalTime = 15000 // Maximum 15 seconds total before giving up
+    
+    // Set a hard timeout to prevent infinite loading
+    const hardTimeout = setTimeout(() => {
+      if (isMounted && !authResolved) {
+        console.error('Auth check exceeded maximum time, redirecting to login')
+        authResolved = true
+        setIsAuthenticated(false)
+        router.push('/login')
+      }
+    }, maxTotalTime)
     
     const checkAuth = async () => {
       try {
         // Add timeout to prevent hanging
         const controller = new AbortController()
-        timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+        timeoutId = setTimeout(() => controller.abort(), 5000) // Reduced to 5 seconds per request
         
         const response = await fetch(`${apiBaseUrl}/api/auth/verify`, {
           credentials: 'include',
@@ -268,7 +317,21 @@ export default function OrdersPage() {
         if (response.ok) {
           const data = await response.json()
           if (data.authenticated) {
+            authResolved = true
+            clearTimeout(hardTimeout)
             setIsAuthenticated(true)
+            return
+          }
+        }
+        
+        // If we get here, not authenticated
+        // Only retry on 401 if we haven't exceeded max retries
+        if (response.status === 401 && retryCount < maxRetries) {
+          retryCount++
+          console.log(`Auth check failed, retrying (${retryCount}/${maxRetries})...`)
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+          if (isMounted) {
+            checkAuth()
             return
           }
         }
@@ -279,23 +342,46 @@ export default function OrdersPage() {
         // Log error for debugging
         console.error('Auth check failed:', err)
         
-        // If it's an abort error (timeout), show error state
-        if (err instanceof Error && err.name === 'AbortError') {
-          console.error('Auth check timed out after 10 seconds')
+        // If it's a network error (not abort), check if we should retry
+        const isNetworkError = err instanceof TypeError || 
+                              (err instanceof Error && err.name !== 'AbortError')
+        
+        if (isNetworkError && retryCount < maxRetries) {
+          retryCount++
+          console.log(`Network error, retrying (${retryCount}/${maxRetries})...`)
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+          if (isMounted) {
+            checkAuth()
+            return
+          }
+        } else if (err instanceof Error && err.name === 'AbortError' && retryCount < maxRetries) {
+          // Timeout error - retry
+          retryCount++
+          console.log(`Request timeout, retrying (${retryCount}/${maxRetries})...`)
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+          if (isMounted) {
+            checkAuth()
+            return
+          }
         }
       }
       
       if (!isMounted) return
       
-      // Not authenticated - redirect to login
-      setIsAuthenticated(false)
-      router.push('/login')
+      // Not authenticated or max retries exceeded - redirect to login
+      if (!authResolved) {
+        authResolved = true
+        clearTimeout(hardTimeout)
+        setIsAuthenticated(false)
+        router.push('/login')
+      }
     }
     
     checkAuth()
     
     return () => {
       isMounted = false
+      clearTimeout(hardTimeout)
       if (timeoutId) clearTimeout(timeoutId)
     }
   }, [router, apiBaseUrl])
@@ -348,6 +434,12 @@ export default function OrdersPage() {
     { refreshInterval: 5000, revalidateOnFocus: false } // Poll status more frequently
   )
   
+  const { data: positionsData, error: positionsError, isLoading: positionsLoading } = useSWR(
+    isAuthenticated === true ? `${apiBaseUrl}/api/positions` : null,
+    fetcher,
+    { refreshInterval: 5000, revalidateOnFocus: false }
+  )
+  
   // Extract data from SWR responses
   const activeOrders = ordersData?.active_orders || []
   const gttOrders = ordersData?.gtt_orders || []
@@ -355,6 +447,8 @@ export default function OrdersPage() {
   const prices = pricesData?.prices || {}
   const marketStatus = pricesData?.market_status || null
   const loadingStatus = loadingStatusData || null
+  const stockPositions = positionsData?.stocks || []
+  const cryptoPositions = positionsData?.crypto || []
   
   // Helper function to get Alpaca order URL
   const getAlpacaOrderUrl = (orderId: string): string => {
@@ -550,16 +644,28 @@ export default function OrdersPage() {
   const [uploadingCrypto, setUploadingCrypto] = useState(false)
   const [uploadMessage, setUploadMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
   
+  // State for CSV preview
+  const [csvPreview, setCsvPreview] = useState<{
+    show: boolean
+    type: 'stocks' | 'crypto'
+    file: File | null
+    previewData: any
+    errors: string[]
+    warnings: string[]
+  } | null>(null)
+  
   // Search/filter state for GTT orders
   const [gttSearchQuery, setGttSearchQuery] = useState<string>("")
   const [expandedAccordion, setExpandedAccordion] = useState<string | null>(null) // Track which accordion is open for lazy loading
+  const [highlightedPrices, setHighlightedPrices] = useState<Record<string, number | null>>({}) // Track highlighted prices per symbol
   
   // Tooltip state for status icons
   const [tooltipState, setTooltipState] = useState<{
     tradingMode: boolean
     sync: boolean
     warning: boolean
-  }>({ tradingMode: false, sync: false, warning: false })
+    logout: boolean
+  }>({ tradingMode: false, sync: false, warning: false, logout: false })
   
   const addConfirmingButton = (key: string) => {
     setConfirmingButtons(prev => new Set(prev).add(key))
@@ -627,7 +733,68 @@ export default function OrdersPage() {
     }
   }
 
-  // Handle CSV uploads
+  // Download CSV template
+  const handleDownloadTemplate = async (type: 'stocks' | 'crypto') => {
+    try {
+      const endpoint = type === 'stocks' ? '/api/download-stocks-template' : '/api/download-crypto-template'
+      const response = await fetch(`${apiBaseUrl}${endpoint}`, {
+        method: 'GET',
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to download template')
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = type === 'stocks' ? 'gtt-stocks-template.csv' : 'gtt-crypto-template.csv'
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error: any) {
+      setUploadMessage({ type: 'error', text: error.message || 'Failed to download template' })
+      setTimeout(() => setUploadMessage(null), 5000)
+    }
+  }
+
+  // Preview CSV before upload
+  const handleCsvPreview = async (file: File, type: 'stocks' | 'crypto') => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('asset_type', type === 'stocks' ? 'stock' : 'crypto')
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/preview-csv`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to preview CSV')
+      }
+
+      const result = await response.json()
+      setCsvPreview({
+        show: true,
+        type,
+        file,
+        previewData: result.preview || [],
+        errors: result.errors || [],
+        warnings: result.warnings || [],
+      })
+    } catch (error: any) {
+      setUploadMessage({ type: 'error', text: error.message || 'Failed to preview CSV' })
+      setTimeout(() => setUploadMessage(null), 5000)
+    }
+  }
+
+  // Handle CSV uploads (after preview confirmation)
   const handleCsvUpload = async (file: File, type: 'stocks' | 'crypto') => {
     const formData = new FormData()
     formData.append('file', file)
@@ -638,6 +805,7 @@ export default function OrdersPage() {
       setUploadingCrypto(true)
     }
     setUploadMessage(null)
+    setCsvPreview(null) // Close preview modal
 
     try {
       const endpoint = type === 'stocks' ? '/api/upload-stocks-csv' : '/api/upload-crypto-csv'
@@ -918,6 +1086,256 @@ export default function OrdersPage() {
     }).format(value)
   }
 
+  const formatPositionCurrency = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) return "-"
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  }
+
+  const formatPositionPercent = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) return "-"
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+  }
+
+  const formatPositionNumber = (value: number | null | undefined, decimals: number = 2): string => {
+    if (value === null || value === undefined) return "-"
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(value)
+  }
+
+  // Helper function to get Alpaca trading URL for positions
+  const getAlpacaTradingUrl = (position: Position): string => {
+    if (position.asset_class === 'crypto') {
+      // For crypto, use symbol/USD format (e.g., SOL/USD, BTC/USD)
+      // The symbol might already have /USD or we need to add it
+      const symbol = position.symbol.includes('/USD') ? position.symbol : `${position.display_symbol}/USD`
+      return `https://app.alpaca.markets/trade/${symbol}`
+    } else {
+      // For stocks, use symbol with asset_class parameter
+      return `https://app.alpaca.markets/trade/${position.display_symbol}?asset_class=stocks`
+    }
+  }
+
+  // Column definitions for Positions
+  const positionsColumns: ColumnDef<Position>[] = useMemo(() => [
+    {
+      accessorKey: "display_symbol",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Asset" />,
+      filterFn: (row, id, value) => {
+        const symbol = row.getValue(id) as string
+        return symbol.toLowerCase().includes(value.toLowerCase())
+      },
+      cell: ({ row }) => {
+        const position = row.original
+        const tradingUrl = getAlpacaTradingUrl(position)
+        return (
+          <div className="flex items-center gap-2">
+            <a
+              href={tradingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium underline hover:text-primary transition-colors inline-flex items-center gap-1"
+              onClick={(e) => e.stopPropagation()} // Prevent row click when clicking link
+            >
+              <span>{position.display_symbol}</span>
+              <ExternalLink className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+            </a>
+            {position.asset_class === 'crypto' && (
+              <Badge variant="outline" className="text-xs bg-muted/50 text-muted-foreground">
+                CRYPTO
+              </Badge>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: "current_price",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Price" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const price = row.getValue(id) as number
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return price.toString().includes(value) || Math.abs(price - numValue) < 0.01
+      },
+      cell: ({ row }) => {
+        return <span className="tabular-nums">{formatPositionCurrency(row.getValue("current_price"))}</span>
+      },
+    },
+    {
+      accessorKey: "qty",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Qty" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const qty = Math.abs(row.getValue(id) as number)
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return qty.toString().includes(value) || Math.abs(qty - numValue) < 0.0001
+      },
+      cell: ({ row }) => {
+        const qty = row.getValue("qty") as number
+        return <span className="tabular-nums">{formatPositionNumber(Math.abs(qty), 8)}</span>
+      },
+    },
+    {
+      accessorKey: "side",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Side" />,
+      filterFn: (row, id, value) => {
+        const side = row.getValue(id) as string
+        return side.toLowerCase().includes(value.toLowerCase())
+      },
+      cell: ({ row }) => {
+        const side = row.getValue("side") as string
+        return (
+          <Badge variant={side === 'long' ? 'default' : 'secondary'} className="text-xs">
+            {side.charAt(0).toUpperCase() + side.slice(1)}
+          </Badge>
+        )
+      },
+    },
+    {
+      accessorKey: "market_value",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Market Value" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const marketValue = row.getValue(id) as number
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return marketValue.toString().includes(value) || Math.abs(marketValue - numValue) < 0.01
+      },
+      cell: ({ row }) => {
+        return <span className="tabular-nums">{formatPositionCurrency(row.getValue("market_value"))}</span>
+      },
+    },
+    {
+      accessorKey: "avg_entry_price",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Avg Entry" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const avgEntry = row.getValue(id) as number
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return avgEntry.toString().includes(value) || Math.abs(avgEntry - numValue) < 0.01
+      },
+      cell: ({ row }) => {
+        return <span className="tabular-nums">{formatPositionCurrency(row.getValue("avg_entry_price"))}</span>
+      },
+    },
+    {
+      accessorKey: "cost_basis",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Cost Basis" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const costBasis = row.getValue(id) as number
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return costBasis.toString().includes(value) || Math.abs(costBasis - numValue) < 0.01
+      },
+      cell: ({ row }) => {
+        return <span className="tabular-nums">{formatPositionCurrency(row.getValue("cost_basis"))}</span>
+      },
+    },
+    {
+      id: "today_plpc",
+      accessorFn: (row) => row.today_plpc ?? null,
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Today's P/L (%)" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const todayPlpc = row.original.today_plpc
+        if (todayPlpc === null || todayPlpc === undefined) return value === "" || value === "-"
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return todayPlpc.toString().includes(value) || Math.abs(todayPlpc - numValue) < 0.01
+      },
+      cell: ({ row }) => {
+        const todayPlpc = row.original.today_plpc
+        if (todayPlpc === null || todayPlpc === undefined) {
+          return <span className="text-muted-foreground">-</span>
+        }
+        const isPositive = todayPlpc >= 0
+        return (
+          <span className={`tabular-nums flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+            {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+            {formatPositionPercent(todayPlpc)}
+          </span>
+        )
+      },
+    },
+    {
+      id: "today_pl",
+      accessorFn: (row) => row.today_pl ?? null,
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Today's P/L ($)" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const todayPl = row.original.today_pl
+        if (todayPl === null || todayPl === undefined) return value === "" || value === "-"
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return todayPl.toString().includes(value) || Math.abs(todayPl - numValue) < 0.01
+      },
+      cell: ({ row }) => {
+        const todayPl = row.original.today_pl
+        if (todayPl === null || todayPl === undefined) {
+          return <span className="text-muted-foreground">-</span>
+        }
+        const isPositive = todayPl >= 0
+        return (
+          <span className={`tabular-nums ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+            {formatPositionCurrency(todayPl)}
+          </span>
+        )
+      },
+    },
+    {
+      accessorKey: "unrealized_plpc",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Total P/L (%)" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const plpc = row.getValue(id) as number
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return plpc.toString().includes(value) || Math.abs(plpc - numValue) < 0.01
+      },
+      cell: ({ row }) => {
+        const plpc = row.getValue("unrealized_plpc") as number
+        const isPositive = plpc >= 0
+        return (
+          <span className={`tabular-nums flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+            {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+            {formatPositionPercent(plpc)}
+          </span>
+        )
+      },
+    },
+    {
+      accessorKey: "unrealized_pl",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Total P/L ($)" filterType="number" />,
+      filterFn: (row, id, value) => {
+        const pl = row.getValue(id) as number
+        if (!value) return true
+        const numValue = parseFloat(value)
+        if (isNaN(numValue)) return true
+        return pl.toString().includes(value) || Math.abs(pl - numValue) < 0.01
+      },
+      cell: ({ row }) => {
+        const pl = row.getValue("unrealized_pl") as number
+        const isPositive = pl >= 0
+        return (
+          <span className={`tabular-nums ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+            {formatPositionCurrency(pl)}
+          </span>
+        )
+      },
+    },
+  ], [])
+
   // Column definitions for GTT Orders (used inside accordion)
   const createGTTColumns = (currentPrice: number | undefined, onRefresh: () => void): ColumnDef<GTTOrder>[] => [
     {
@@ -1043,15 +1461,38 @@ export default function OrdersPage() {
           )
         }
         
+        const isHighlighted = highlightedPrices[order.symbol] === order.price
+        
         return (
-          <div className="flex items-center gap-1 group">
-            <span className="font-medium">{formatCurrency(order.price)}</span>
+          <div 
+            className={`flex items-center gap-1 group transition-colors cursor-pointer ${
+              isHighlighted ? 'bg-primary/20 rounded px-1 py-0.5' : ''
+            }`}
+            data-order-price={`${order.symbol}-${order.price.toFixed(2)}`}
+            onMouseEnter={() => {
+              setHighlightedPrices(prev => ({ ...prev, [order.symbol]: order.price }))
+            }}
+            onMouseLeave={() => {
+              setHighlightedPrices(prev => ({ ...prev, [order.symbol]: null }))
+            }}
+            onClick={() => {
+              // Scroll to chart line - find the chart container and scroll to it
+              const chartContainer = document.querySelector(`[data-chart-symbol="${order.symbol}"]`)
+              if (chartContainer) {
+                chartContainer.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }
+            }}
+          >
+            <span className={`font-medium ${isHighlighted ? 'font-semibold' : ''}`}>{formatCurrency(order.price)}</span>
             {canEdit && (
               <Button
                 size="sm"
                 variant="ghost"
                 className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => handleStartEdit(order.symbol, order.order_index - 1, 'price', order.price)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleStartEdit(order.symbol, order.order_index - 1, 'price', order.price)
+                }}
               >
                 <Edit2 className="h-3 w-3" />
               </Button>
@@ -1372,10 +1813,13 @@ export default function OrdersPage() {
           }
         }
         
-        // Can reinstate if we found a matching GTT order
-        const canReinstate = !!matchingGTTOrder
+        // Can reinstate if we found a matching GTT order AND it hasn't been reinstated before
+        const canReinstate = !!matchingGTTOrder && !matchingGTTOrder.reinstated
         
         if (!canReinstate || !matchingGTTOrder) {
+          if (matchingGTTOrder?.reinstated) {
+            return <span className="text-muted-foreground text-xs" title="This order has already been reinstated">Already reinstated</span>
+          }
           return <span className="text-muted-foreground text-xs">—</span>
         }
         
@@ -1676,6 +2120,25 @@ export default function OrdersPage() {
                         onMouseLeave={() => setTooltipState(prev => ({ ...prev, warning: false }))}
                       />
                     )}
+                    
+                    {/* Logout Icon - Rightmost */}
+                    <div 
+                      onClick={handleLogout}
+                      className="cursor-pointer"
+                    >
+                      <IconTooltip
+                        icon={
+                          <LogOut className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" />
+                        }
+                        title="Logout"
+                        content={
+                          <>Click to log out and return to the login page</>
+                        }
+                        isVisible={tooltipState.logout}
+                        onMouseEnter={() => setTooltipState(prev => ({ ...prev, logout: true }))}
+                        onMouseLeave={() => setTooltipState(prev => ({ ...prev, logout: false }))}
+                      />
+                    </div>
                   </div>
                   
                   {/* Loading Progress Bar - Compact and Smooth */}
@@ -1698,25 +2161,32 @@ export default function OrdersPage() {
                       )}
                     </div>
                   )}
-                  
-                  {/* Bottom row: Last sync time */}
-                  <div className="flex flex-col items-end gap-0.5">
-                    <span className="text-[9px] text-muted-foreground leading-tight">
-                      {formatLastSyncDetailed()}
-                    </span>
-                    {marketStatus && marketStatus.is_open === false && (
-                      <span className="text-[8px] text-muted-foreground/70 leading-tight">
-                        Closed
-                      </span>
-                    )}
-                  </div>
                 </div>
               ) : (
-                <div className="flex flex-col items-end gap-0.5">
+                <div className="flex items-center gap-2">
                   <WifiOff className="h-4 w-4 text-red-500" />
                   <span className="text-[9px] text-red-500/70 leading-tight">
                     Offline
                   </span>
+                  
+                  {/* Logout Icon - Rightmost */}
+                  <div 
+                    onClick={handleLogout}
+                    className="cursor-pointer ml-2"
+                  >
+                    <IconTooltip
+                      icon={
+                        <LogOut className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors cursor-pointer" />
+                      }
+                      title="Logout"
+                      content={
+                        <>Click to log out and return to the login page</>
+                      }
+                      isVisible={tooltipState.logout}
+                      onMouseEnter={() => setTooltipState(prev => ({ ...prev, logout: true }))}
+                      onMouseLeave={() => setTooltipState(prev => ({ ...prev, logout: false }))}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -1748,23 +2218,31 @@ export default function OrdersPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="stocks-orders" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1 h-auto sm:h-9">
-            <TabsTrigger value="stocks-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400">
-              <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span className="text-center leading-tight break-words">Stock/ETF Orders</span>
-            </TabsTrigger>
-            <TabsTrigger value="stocks-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400">
-              <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span className="text-center leading-tight break-words">Stock/ETF GTT</span>
-            </TabsTrigger>
-            <TabsTrigger value="crypto-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400">
+        <Tabs defaultValue="stocks-positions" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-6 gap-1 h-auto sm:h-9 overflow-hidden">
+            <TabsTrigger value="stocks-positions" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400 overflow-hidden min-w-0">
               <Wallet className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span className="text-center leading-tight break-words">Crypto Orders</span>
+              <span className="text-center leading-tight break-words truncate min-w-0">Stock/ETF Positions</span>
             </TabsTrigger>
-            <TabsTrigger value="crypto-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400">
+            <TabsTrigger value="stocks-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400 overflow-hidden min-w-0">
+              <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span className="text-center leading-tight break-words truncate min-w-0">Stock/ETF Orders</span>
+            </TabsTrigger>
+            <TabsTrigger value="stocks-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-purple-500/15 data-[state=active]:!text-purple-400 data-[state=active]:!border-purple-500/40 [&_svg]:text-purple-400/70 data-[state=active]:[&_svg]:!text-purple-400 overflow-hidden min-w-0">
+              <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span className="text-center leading-tight break-words truncate min-w-0">Stock/ETF GTT</span>
+            </TabsTrigger>
+            <TabsTrigger value="crypto-positions" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400 overflow-hidden min-w-0">
+              <Wallet className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span className="text-center leading-tight break-words truncate min-w-0">Crypto Positions</span>
+            </TabsTrigger>
+            <TabsTrigger value="crypto-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400 overflow-hidden min-w-0">
+              <Wallet className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span className="text-center leading-tight break-words truncate min-w-0">Crypto Orders</span>
+            </TabsTrigger>
+            <TabsTrigger value="crypto-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-[10px] sm:text-sm px-1 sm:px-2 py-1.5 sm:py-1 whitespace-normal sm:whitespace-nowrap min-h-[2.5rem] sm:min-h-0 data-[state=active]:!bg-pink-500/15 data-[state=active]:!text-pink-400 data-[state=active]:!border-pink-500/40 [&_svg]:text-pink-400/70 data-[state=active]:[&_svg]:!text-pink-400 overflow-hidden min-w-0">
               <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span className="text-center leading-tight break-words">Crypto GTT</span>
+              <span className="text-center leading-tight break-words truncate min-w-0">Crypto GTT</span>
             </TabsTrigger>
           </TabsList>
 
@@ -1790,6 +2268,36 @@ export default function OrdersPage() {
               </Card>
             </div>
           )}
+
+          {/* Stock/ETF Positions Tab */}
+          <TabsContent value="stocks-positions" className="space-y-4 mt-4">
+            {positionsLoading ? (
+              <div className="text-center py-8 text-muted-foreground">Loading positions...</div>
+            ) : positionsError ? (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive">
+                Error loading positions: {positionsError.message}
+              </div>
+            ) : stockPositions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">No stock positions</div>
+            ) : (
+              <DataTable columns={positionsColumns} data={stockPositions} />
+            )}
+          </TabsContent>
+
+          {/* Crypto Positions Tab */}
+          <TabsContent value="crypto-positions" className="space-y-4 mt-4">
+            {positionsLoading ? (
+              <div className="text-center py-8 text-muted-foreground">Loading positions...</div>
+            ) : positionsError ? (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive">
+                Error loading positions: {positionsError.message}
+              </div>
+            ) : cryptoPositions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">No crypto positions</div>
+            ) : (
+              <DataTable columns={positionsColumns} data={cryptoPositions} />
+            )}
+          </TabsContent>
 
           {/* Stock/ETF Orders Tab */}
           <TabsContent value="stocks-orders" className="space-y-4 mt-4">
@@ -2093,8 +2601,17 @@ export default function OrdersPage() {
 
           {/* Stock/ETF GTT Tab */}
           <TabsContent value="stocks-gtt" className="space-y-4 mt-4">
-            {/* CSV Upload Button */}
+            {/* CSV Upload and Download Buttons */}
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleDownloadTemplate('stocks')}
+                className="bg-green-600/10 hover:bg-green-600/20 text-green-600 border-green-600/30 hover:border-green-600/50"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download Template
+              </Button>
               <div className="relative">
                 <input
                   type="file"
@@ -2103,7 +2620,7 @@ export default function OrdersPage() {
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0]
-                    if (file) handleCsvUpload(file, 'stocks')
+                    if (file) handleCsvPreview(file, 'stocks')
                     e.target.value = ''
                   }}
                 />
@@ -2112,6 +2629,7 @@ export default function OrdersPage() {
                   size="sm"
                   onClick={() => document.getElementById('stocks-csv-upload')?.click()}
                   disabled={uploadingStocks}
+                  className="bg-green-500/10 hover:bg-green-500/20 text-green-500 border-green-500/30 hover:border-green-500/50"
                 >
                   {uploadingStocks ? (
                     <>
@@ -2263,12 +2781,31 @@ export default function OrdersPage() {
                               columns={columns}
                               data={orders}
                             />
-                            <div className="pt-2 border-t">
+                            <div className="pt-2 border-t" data-chart-symbol={symbol}>
                               <StockChart 
                                 symbol={symbol} 
                                 apiBaseUrl={apiBaseUrl} 
                                 height={200}
                                 enabled={expandedAccordion === symbol}
+                                highlightedPrice={highlightedPrices[symbol] || null}
+                                onPriceHover={(price) => {
+                                  setHighlightedPrices(prev => ({ ...prev, [symbol]: price }))
+                                }}
+                                onPriceClick={(price) => {
+                                  // Find the table row with this price and scroll to it
+                                  const tableRow = document.querySelector(`[data-order-price="${symbol}-${price.toFixed(2)}"]`)
+                                  if (tableRow) {
+                                    tableRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                    // Temporarily highlight the row
+                                    const rowElement = tableRow.closest('tr')
+                                    if (rowElement) {
+                                      rowElement.classList.add('bg-primary/20')
+                                      setTimeout(() => {
+                                        rowElement.classList.remove('bg-primary/20')
+                                      }, 2000)
+                                    }
+                                  }
+                                }}
                               />
                             </div>
                           </CardContent>
@@ -2583,8 +3120,17 @@ export default function OrdersPage() {
 
           {/* Crypto GTT Tab */}
           <TabsContent value="crypto-gtt" className="space-y-4 mt-4">
-            {/* CSV Upload Button */}
+            {/* CSV Upload and Download Buttons */}
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleDownloadTemplate('crypto')}
+                className="bg-green-600/10 hover:bg-green-600/20 text-green-600 border-green-600/30 hover:border-green-600/50"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download Template
+              </Button>
               <div className="relative">
                 <input
                   type="file"
@@ -2593,7 +3139,7 @@ export default function OrdersPage() {
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0]
-                    if (file) handleCsvUpload(file, 'crypto')
+                    if (file) handleCsvPreview(file, 'crypto')
                     e.target.value = ''
                   }}
                 />
@@ -2602,6 +3148,7 @@ export default function OrdersPage() {
                   size="sm"
                   onClick={() => document.getElementById('crypto-csv-upload')?.click()}
                   disabled={uploadingCrypto}
+                  className="bg-green-500/10 hover:bg-green-500/20 text-green-500 border-green-500/30 hover:border-green-500/50"
                 >
                   {uploadingCrypto ? (
                     <>
@@ -2753,12 +3300,31 @@ export default function OrdersPage() {
                               columns={columns}
                               data={orders}
                             />
-                            <div className="pt-2 border-t">
+                            <div className="pt-2 border-t" data-chart-symbol={symbol}>
                               <StockChart 
                                 symbol={symbol} 
                                 apiBaseUrl={apiBaseUrl} 
                                 height={200}
                                 enabled={expandedAccordion === symbol}
+                                highlightedPrice={highlightedPrices[symbol] || null}
+                                onPriceHover={(price) => {
+                                  setHighlightedPrices(prev => ({ ...prev, [symbol]: price }))
+                                }}
+                                onPriceClick={(price) => {
+                                  // Find the table row with this price and scroll to it
+                                  const tableRow = document.querySelector(`[data-order-price="${symbol}-${price.toFixed(2)}"]`)
+                                  if (tableRow) {
+                                    tableRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                    // Temporarily highlight the row
+                                    const rowElement = tableRow.closest('tr')
+                                    if (rowElement) {
+                                      rowElement.classList.add('bg-primary/20')
+                                      setTimeout(() => {
+                                        rowElement.classList.remove('bg-primary/20')
+                                      }, 2000)
+                                    }
+                                  }
+                                }}
                               />
                             </div>
                           </CardContent>
@@ -2772,6 +3338,163 @@ export default function OrdersPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* CSV Preview Modal */}
+      {csvPreview?.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <CardHeader className="flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  CSV Preview - {csvPreview.type === 'stocks' ? 'Stocks/ETFs' : 'Crypto'}
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCsvPreview(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <CardDescription>
+                Review your CSV data before uploading. {csvPreview.file?.name}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-auto space-y-4">
+              {/* Summary */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-3 bg-muted rounded-lg">
+                  <div className="text-sm text-muted-foreground">Symbols</div>
+                  <div className="text-2xl font-bold">{csvPreview.previewData.length}</div>
+                </div>
+                <div className="p-3 bg-muted rounded-lg">
+                  <div className="text-sm text-muted-foreground">Total Orders</div>
+                  <div className="text-2xl font-bold">
+                    {csvPreview.previewData.reduce((sum: number, item: any) => sum + item.order_count, 0)}
+                  </div>
+                </div>
+                <div className="p-3 bg-muted rounded-lg">
+                  <div className="text-sm text-muted-foreground">Status</div>
+                  <div className="text-lg font-semibold">
+                    {csvPreview.errors.length > 0 ? (
+                      <span className="text-destructive">Has Errors</span>
+                    ) : csvPreview.warnings.length > 0 ? (
+                      <span className="text-yellow-600">Has Warnings</span>
+                    ) : (
+                      <span className="text-green-600">Ready</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Errors */}
+              {csvPreview.errors.length > 0 && (
+                <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-destructive" />
+                    <h3 className="font-semibold text-destructive">Errors ({csvPreview.errors.length})</h3>
+                  </div>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-destructive">
+                    {csvPreview.errors.map((error, idx) => (
+                      <li key={idx}>{error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Warnings */}
+              {csvPreview.warnings.length > 0 && (
+                <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                    <h3 className="font-semibold text-yellow-600">Warnings ({csvPreview.warnings.length})</h3>
+                  </div>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-yellow-600">
+                    {csvPreview.warnings.map((warning, idx) => (
+                      <li key={idx}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Preview Table */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto max-h-96">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">Row</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead className="text-right">Orders</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Order Details</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {csvPreview.previewData.map((item: any, idx: number) => (
+                        <TableRow key={idx}>
+                          <TableCell className="font-mono text-xs">{item.row}</TableCell>
+                          <TableCell className="font-medium">{item.company}</TableCell>
+                          <TableCell className="font-mono">{item.symbol}</TableCell>
+                          <TableCell className="text-right">{item.order_count}</TableCell>
+                          <TableCell>
+                            {item.is_available === false ? (
+                              <Badge variant="destructive">Not Available</Badge>
+                            ) : item.is_available === true ? (
+                              <Badge variant="default">Available</Badge>
+                            ) : (
+                              <Badge variant="secondary">Unknown</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {item.orders.map((order: any) => (
+                                <Badge key={order.order_num} variant="outline" className="text-xs">
+                                  #{order.order_num}: {order.amount} @ ${order.price.toFixed(2)}
+                                </Badge>
+                              ))}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </CardContent>
+            <div className="flex-shrink-0 border-t p-4 flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setCsvPreview(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (csvPreview.file) {
+                    handleCsvUpload(csvPreview.file, csvPreview.type)
+                  }
+                }}
+                disabled={csvPreview.errors.length > 0 || uploadingStocks || uploadingCrypto}
+              >
+                {uploadingStocks || uploadingCrypto ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Confirm & Upload
+                  </>
+                )}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

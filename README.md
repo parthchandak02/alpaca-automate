@@ -6,10 +6,12 @@ A powerful, open-source trading automation tool for Alpaca that implements GTT-s
 
 - **Sequential Order Execution**: Automatically places orders in sequence when trigger prices are met
 - **Real-time Price Monitoring**: WebSocket-based price updates with automatic polling fallback
-- **Web Dashboard**: Modern Next.js UI for monitoring orders, prices, and account status
+- **Web Dashboard**: Modern Next.js UI for monitoring orders, prices, positions, and account status
+- **Positions Tracking**: View all stock/ETF and crypto positions with real-time P/L
 - **Email Notifications**: Configurable email alerts for order status changes
 - **Password Protection**: Secure authentication with JWT tokens
 - **Chart Visualization**: Historical price charts for each symbol with multiple timeframes
+- **CSV Management**: Upload, preview, and download CSV templates via web interface
 - **Auto-reload**: CSV changes automatically reload orders (no restart needed)
 - **Database Persistence**: SQLite database for order tracking and history
 
@@ -80,14 +82,20 @@ This will prompt you for a password and generate both `APP_PASSWORD_HASH` and `J
 
 ### 5. Setup CSV Files
 
-Create your order CSV files:
+Create your order CSV files manually or download templates from the UI:
 
-```bash
-cp data/gtt-live-stocks-etfs.csv.example data/gtt-live-stocks-etfs.csv
-cp data/gtt-live-crypto.csv.example data/gtt-live-crypto.csv
-```
+**Option 1: Download from UI (Recommended)**
+1. Start the application first (see step 6 below)
+2. Navigate to the web UI
+3. Click "Download Template" button in the Stock/ETF GTT or Crypto GTT tab
+4. Save the template files as `data/gtt-live-stocks-etfs.csv` and `data/gtt-live-crypto.csv`
 
-Edit these files with your orders (see CSV Format section below).
+**Option 2: Create manually**
+Create empty CSV files with headers:
+- `data/gtt-live-stocks-etfs.csv`
+- `data/gtt-live-crypto.csv`
+
+See CSV Format section below for the required format.
 
 ### 6. Start Application
 
@@ -170,14 +178,14 @@ USE_TEST_CSV=false  # Set to true to use test CSV files
 Orders are defined in CSV files (`data/gtt-live-stocks-etfs.csv` for stocks/ETFs, `data/gtt-live-crypto.csv` for crypto):
 
 ```csv
-Company,Account,Amt 1,Price 1,Amt 2,Price 2,Amt 3,Price 3,Amt 4,Price 4,Amt 5,Price 5,Amt 6,Price 6,Amt 7,Price 7,Amt 8,Price 8,Recurring Amount,Notes
+Company,Symbol,Amt 1,Price 1,Amt 2,Price 2,Amt 3,Price 3,Amt 4,Price 4,Amt 5,Price 5,Amt 6,Price 6,Amt 7,Price 7,Amt 8,Price 8,Recurring Amount,Notes
 iShares MSCI Taiwan ETF,EWT,1.0,$64.61,2,$58.15,3,$52.00,5,$46.00,8,$41.00,12,$36.00,18,$32.00,27,$28.00,100,
 Bitcoin,BTC,0.1,$35000,0.2,$33000,0.3,$31000,,,,,,,,,,
 ```
 
 **Column Descriptions:**
 - `Company`: Display name (fetched from Alpaca if available, otherwise uses this value)
-- `Account`: Symbol (e.g., "EWT", "BTC", "ETH")
+- `Symbol`: Stock/crypto symbol (e.g., "EWT", "BTC", "ETH")
 - `Amt N` / `Price N`: Order amount and trigger price (up to 8 orders per symbol)
 - `Recurring Amount`: (Optional) Not currently used
 - `Notes`: (Optional) Additional notes
@@ -225,15 +233,21 @@ Bitcoin,BTC,0.1,$35000,0.2,$33000,0.3,$31000,,,,,,,,,,
 - `GET /api/orders` - All orders (GTT + active Alpaca orders)
 - `GET /api/prices` - Current market prices
 - `GET /api/account` - Account info (buying power, equity)
+- `GET /api/positions` - All positions (stocks and crypto)
 - `GET /api/status` - Loading status and progress
 - `GET /api/chart/<symbol>` - Historical price data
 - `POST /api/auth/login` - Login with password
+- `POST /api/auth/logout` - Logout and invalidate session
 - `POST /api/auth/verify` - Verify authentication status
 - `POST /api/force-fill-order` - Manually fill any pending order
 - `POST /api/edit-gtt-order` - Edit GTT order price or amount
 - `POST /api/reinstate-gtt-order` - Re-instate cancelled/expired orders
 - `POST /api/upload-stocks-csv` - Upload new stocks CSV
 - `POST /api/upload-crypto-csv` - Upload new crypto CSV
+- `POST /api/preview-csv` - Preview CSV before uploading (validation)
+- `GET /api/download-stocks-template` - Download stocks CSV template
+- `GET /api/download-crypto-template` - Download crypto CSV template
+- `POST /api/sync-filled-orders` - Manually sync filled orders from Alpaca
 
 ## Authentication
 
@@ -411,9 +425,11 @@ alpaca-trading/
 │   └── notifications.py        # Email notification manager
 ├── ui/                           # Next.js web interface
 │   ├── app/
-│   │   ├── page.tsx             # Main UI component
+│   │   ├── page.tsx             # Main orders UI component
 │   │   ├── login/
 │   │   │   └── page.tsx         # Login page
+│   │   ├── positions/
+│   │   │   └── page.tsx         # Positions page
 │   │   └── layout.tsx           # Root layout
 │   └── components/              # Reusable UI components
 │       ├── data-table.tsx       # Order data table
@@ -425,8 +441,8 @@ alpaca-trading/
 ├── config/                       # Configuration
 │   └── ecosystem.config.js      # PM2 configuration
 ├── data/                         # CSV order files (gitignored)
-│   ├── gtt-live-stocks-etfs.csv.example
-│   └── gtt-live-crypto.csv.example
+│   ├── gtt-stocks-template.csv   # Template for stocks/ETFs (downloadable from UI)
+│   └── gtt-crypto-template.csv   # Template for crypto (downloadable from UI)
 └── logs/                         # Application logs (gitignored)
 ```
 
@@ -444,13 +460,28 @@ alpaca-trading/
 - Manual force-fill option for testing
 - Re-instate cancelled/expired orders
 - Edit order prices and amounts via UI
-- CSV upload via web interface
+- CSV upload via web interface with preview and validation
+
+### Positions View
+- View all stock/ETF and crypto positions
+- Real-time P/L tracking (today and total)
+- Market value and cost basis display
+- Direct links to Alpaca trading interface
+- Separate tabs for stocks/ETFs and crypto
 
 ### Charts
 - Historical price charts (1D, 1W, 1M, 3M, 6M, 1Y, MAX)
 - Lazy loading (only loads when accordion is expanded)
 - Real-time updates for 1D timeframe
 - Visual indicators for GTT order trigger prices
+- Interactive price highlighting and navigation
+
+### CSV Management
+- Download CSV templates from UI
+- CSV preview before upload with validation
+- Symbol availability checking
+- Error and warning reporting
+- Support for both stocks/ETFs and crypto
 
 ### Notifications
 - Email notifications for all order status changes
@@ -530,5 +561,5 @@ This software is provided "as is" without warranty of any kind. Trading involves
 - CSV changes auto-reload (no restart needed)
 - WebSocket preferred; falls back to polling automatically
 - Test in paper trading mode first!
-- Live CSV files are gitignored (use `.example` files as templates)
+- Live CSV files are gitignored (download templates from the UI)
 - Database file (`data/gtt_orders.db`) is gitignored for privacy

@@ -14,6 +14,9 @@ interface StockChartProps {
   apiBaseUrl: string
   height?: number
   enabled?: boolean // Only fetch when enabled (accordion is open)
+  highlightedPrice?: number | null // Price to highlight in chart
+  onPriceHover?: (price: number | null) => void // Callback when hovering over price labels
+  onPriceClick?: (price: number) => void // Callback when clicking price labels
 }
 
 interface GTTOrder {
@@ -45,8 +48,9 @@ const chartConfig = {
   },
 }
 
-export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }: StockChartProps) {
+export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true, highlightedPrice = null, onPriceHover, onPriceClick }: StockChartProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>("1M")
+  const [hoveredPrice, setHoveredPrice] = useState<number | null>(null)
   
   // Only fetch when enabled (accordion is open) - lazy loading best practice
   const { data, error, isLoading } = useSWR(
@@ -257,23 +261,30 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
               })}
               
               {/* GTT Order horizontal lines - always visible */}
-              {gttOrders.map((order, idx) => (
-                <ReferenceLine
-                  key={`gtt-order-${order.order_index}-${idx}`}
-                  y={order.price}
-                  stroke={getOrderColor(order.status)}
-                  strokeWidth={order.is_current ? 2.5 : 1.5}
-                  strokeOpacity={order.is_current ? 0.8 : 0.6}
-                  strokeDasharray={order.status === "pending" ? "4 4" : "none"}
-                  label={{
-                    value: formatPrice(order.price),
-                    position: "right",
-                    fill: getOrderColor(order.status),
-                    fontSize: 10,
-                    offset: 5,
-                  }}
-                />
-              ))}
+              {gttOrders.map((order, idx) => {
+                const isHighlighted = highlightedPrice !== null && Math.abs(order.price - highlightedPrice) < 0.01
+                const isHovered = hoveredPrice !== null && Math.abs(order.price - hoveredPrice) < 0.01
+                const shouldHighlight = isHighlighted || isHovered
+                
+                return (
+                  <ReferenceLine
+                    key={`gtt-order-${order.order_index}-${idx}`}
+                    y={order.price}
+                    stroke={getOrderColor(order.status)}
+                    strokeWidth={shouldHighlight ? (order.is_current ? 3.5 : 2.5) : (order.is_current ? 2.5 : 1.5)}
+                    strokeOpacity={shouldHighlight ? 1.0 : (order.is_current ? 0.8 : 0.6)}
+                    strokeDasharray={order.status === "pending" ? "4 4" : "none"}
+                    label={{
+                      value: formatPrice(order.price),
+                      position: "right",
+                      fill: getOrderColor(order.status),
+                      fontSize: shouldHighlight ? 12 : 10,
+                      fontWeight: shouldHighlight ? 600 : 400,
+                      offset: 5,
+                    }}
+                  />
+                )
+              })}
               
               <XAxis
                 dataKey="date"
@@ -287,13 +298,48 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true }:
                 height={50}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: "oklch(0.65 0 0)" }}
+                tick={(props: any) => {
+                  const { x, y, payload } = props
+                  const price = payload.value
+                  const isHighlighted = highlightedPrice !== null && Math.abs(price - highlightedPrice) < 0.01
+                  const isHovered = hoveredPrice !== null && Math.abs(price - hoveredPrice) < 0.01
+                  
+                  return (
+                    <g transform={`translate(${x},${y})`}>
+                      <text
+                        x={0}
+                        y={0}
+                        dy={4}
+                        textAnchor="end"
+                        fill={isHighlighted || isHovered ? "oklch(0.85 0.15 95)" : "oklch(0.65 0 0)"}
+                        fontSize={11}
+                        fontWeight={isHighlighted || isHovered ? 600 : 400}
+                        className="cursor-pointer transition-all duration-200"
+                        style={{
+                          transform: 'rotate(-45deg)',
+                          transformOrigin: '0 0',
+                        }}
+                        onMouseEnter={() => {
+                          setHoveredPrice(price)
+                          onPriceHover?.(price)
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredPrice(null)
+                          onPriceHover?.(null)
+                        }}
+                        onClick={() => {
+                          onPriceClick?.(price)
+                        }}
+                      >
+                        {formatPrice(price)}
+                      </text>
+                    </g>
+                  )
+                }}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={formatPrice}
                 domain={yAxisDomain}
-                width={60}
-                style={{ fontSize: '11px' }}
+                width={80}
                 allowDataOverflow={false}
                 ticks={yTicks}
               />

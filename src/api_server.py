@@ -13,7 +13,7 @@ import jwt
 import bcrypt
 from .gtt_monitor import GTTOrderManager, SymbolLadder, SequentialOrder
 from alpaca.trading.requests import GetOrdersRequest
-from alpaca.data.requests import StockBarsRequest
+from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
 try:
     from alpaca.trading.enums import QueryOrderStatus
@@ -393,10 +393,23 @@ def get_orders():
                 set_loading_status(True, "Processing GTT orders", 3, 4, symbol, f"Processing {symbol} ({processed}/{total_symbols})...")
             
             # Get all Alpaca orders for this symbol to sync statuses
+            # Handle symbol normalization: COMP-STOCK -> COMP, BTC -> BTC/USD, etc.
             symbol_alpaca_orders = {}
             try:
                 for order in alpaca_orders_list:
-                    if order.symbol == symbol:
+                    order_symbol = order.symbol
+                    # Normalize order symbol (remove /USD for crypto, handle -STOCK suffix)
+                    normalized_order_symbol = order_symbol.replace('/USD', '') if '/USD' in order_symbol else order_symbol
+                    
+                    # Check if this order matches our symbol
+                    # Handle cases where we renamed symbols (e.g., COMP-STOCK -> COMP in Alpaca)
+                    symbol_matches = (
+                        order_symbol == symbol or  # Exact match
+                        normalized_order_symbol == symbol or  # Normalized match
+                        symbol.endswith('-STOCK') and normalized_order_symbol == symbol.replace('-STOCK', '')  # COMP-STOCK matches COMP
+                    )
+                    
+                    if symbol_matches:
                         symbol_alpaca_orders[order.id] = order.status.value if hasattr(order.status, 'value') else str(order.status)
             except Exception as e:
                 logger.debug(f"Error processing Alpaca orders for {symbol}: {e}")
@@ -417,6 +430,12 @@ def get_orders():
                         # Order might not exist anymore, keep as "placed" for now
                         pass
                 
+                # Get reinstated flag from database
+                db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+                reinstated = False
+                if idx < len(db_orders):
+                    reinstated = db_orders[idx].reinstated
+                
                 gtt_orders.append({
                     "symbol": symbol,
                     "company": ladder.company,
@@ -430,6 +449,7 @@ def get_orders():
                     "is_current": idx == ladder.current_order_index,
                     "is_available_on_alpaca": ladder.is_available_on_alpaca,
                     "asset_type": ladder.asset_type,  # 'stock' or 'crypto'
+                    "reinstated": reinstated,  # Whether this order has been reinstated before
                 })
         
         # Clear loading status when done - use clear_loading_status to fully reset
@@ -535,8 +555,14 @@ def force_fill_order():
                 from alpaca.trading.requests import LimitOrderRequest
                 from alpaca.trading.enums import OrderSide, TimeInForce
                 
+                # Format symbol correctly for order placement
+                # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
+                order_symbol = symbol
+                if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
+                    order_symbol = f"{symbol}/USD"
+                
                 order_request = LimitOrderRequest(
-                    symbol=symbol,
+                    symbol=order_symbol,
                     qty=target_order.amount,
                     side=OrderSide.BUY,
                     limit_price=target_order.price,
@@ -622,8 +648,14 @@ def force_fill_order():
                         from alpaca.trading.requests import LimitOrderRequest
                         from alpaca.trading.enums import OrderSide, TimeInForce
                         
+                        # Format symbol correctly for order placement
+                        # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
+                        order_symbol = symbol
+                        if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
+                            order_symbol = f"{symbol}/USD"
+                        
                         order_request = LimitOrderRequest(
-                            symbol=symbol,
+                            symbol=order_symbol,
                             qty=next_order.amount,
                             side=OrderSide.BUY,
                             limit_price=next_order.price,
@@ -699,8 +731,14 @@ def simulate_fill():
                 from alpaca.trading.requests import LimitOrderRequest
                 from alpaca.trading.enums import OrderSide, TimeInForce
                 
+                # Format symbol correctly for order placement
+                # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
+                order_symbol = symbol
+                if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
+                    order_symbol = f"{symbol}/USD"
+                
                 order_request = LimitOrderRequest(
-                    symbol=symbol,
+                    symbol=order_symbol,
                     qty=current_order.amount,
                     side=OrderSide.BUY,
                     limit_price=current_order.price,
@@ -915,6 +953,93 @@ def get_account():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/positions', methods=['GET'])
+@require_auth
+def get_positions():
+    """Get all positions (stocks and crypto)"""
+    logger.debug("GET /api/positions - Request received")
+    if not manager:
+        logger.error("Manager not initialized")
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        # Get all positions from Alpaca
+        # The Alpaca Python SDK uses get_all_positions() method
+        try:
+            positions = manager.trading_client.get_all_positions()
+        except AttributeError as e:
+            logger.error(f"get_all_positions method not found: {e}")
+            # Try alternative method name
+            try:
+                positions = manager.trading_client.get_positions()
+            except AttributeError as e2:
+                logger.error(f"get_positions method also not found: {e2}")
+                return jsonify({"error": "Positions API method not available in Alpaca SDK"}), 500
+        
+        # Separate stocks and crypto positions
+        stock_positions = []
+        crypto_positions = []
+        
+        for position in positions:
+            # Determine asset class
+            asset_class = getattr(position, 'asset_class', None)
+            if asset_class is None:
+                # Fallback: check symbol format (crypto symbols often have /USD suffix)
+                symbol = getattr(position, 'symbol', '')
+                if '/USD' in symbol or symbol in ['BTC', 'ETH', 'SOL', 'DOGE', 'BCH', 'LTC']:
+                    asset_class = 'crypto'
+                else:
+                    asset_class = 'us_equity'
+            
+            # Extract position data
+            position_data = {
+                "asset_id": getattr(position, 'asset_id', None),
+                "symbol": getattr(position, 'symbol', ''),
+                "exchange": getattr(position, 'exchange', ''),
+                "asset_class": asset_class,
+                "qty": float(position.qty) if position.qty else 0,
+                "side": getattr(position, 'side', 'long').value if hasattr(getattr(position, 'side', 'long'), 'value') else str(getattr(position, 'side', 'long')),
+                "market_value": float(position.market_value) if position.market_value else 0,
+                "avg_entry_price": float(position.avg_entry_price) if position.avg_entry_price else 0,
+                "cost_basis": float(position.cost_basis) if position.cost_basis else 0,
+                "unrealized_pl": float(position.unrealized_pl) if position.unrealized_pl else 0,
+                "unrealized_plpc": float(position.unrealized_plpc) if position.unrealized_plpc else 0,
+                "current_price": float(position.current_price) if position.current_price else 0,
+                "lastday_price": float(position.lastday_price) if hasattr(position, 'lastday_price') and position.lastday_price else None,
+                "change_today": float(position.change_today) if hasattr(position, 'change_today') and position.change_today else None,
+            }
+            
+            # Calculate today's P/L if we have lastday_price
+            if position_data['lastday_price'] and position_data['current_price']:
+                price_change = position_data['current_price'] - position_data['lastday_price']
+                position_data['today_pl'] = price_change * abs(position_data['qty'])
+                position_data['today_plpc'] = (price_change / position_data['lastday_price']) * 100 if position_data['lastday_price'] > 0 else 0
+            else:
+                position_data['today_pl'] = None
+                position_data['today_plpc'] = None
+            
+            # Normalize symbol for crypto (remove /USD suffix for display)
+            display_symbol = position_data['symbol']
+            if asset_class == 'crypto' and '/USD' in display_symbol:
+                display_symbol = display_symbol.replace('/USD', '')
+            position_data['display_symbol'] = display_symbol
+            
+            # Add to appropriate list
+            if asset_class == 'crypto':
+                crypto_positions.append(position_data)
+            else:
+                stock_positions.append(position_data)
+        
+        logger.debug(f"Returning {len(stock_positions)} stock positions and {len(crypto_positions)} crypto positions")
+        return jsonify({
+            "stocks": stock_positions,
+            "crypto": crypto_positions,
+        })
+    except Exception as e:
+        logger.error(f"Error in get_positions: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/send-daily-summary', methods=['POST'])
 @require_auth
 def send_daily_summary():
@@ -1060,17 +1185,32 @@ def reinstate_gtt_order():
         ladder = manager.ladders[symbol]
         
         # Determine which order to re-instate
+        # Frontend sends 1-based order_index (Order #1, #2, etc.), convert to 0-based
+        actual_order_index = None
         if order_index is not None:
-            if order_index < 0 or order_index >= len(ladder.orders):
-                return jsonify({"error": f"Invalid order_index. Must be between 0 and {len(ladder.orders) - 1}"}), 400
-            target_order = ladder.orders[order_index]
-            target_order_num = order_index + 1
+            # Convert from 1-based (frontend) to 0-based (backend)
+            actual_order_index = order_index - 1
+            if actual_order_index < 0 or actual_order_index >= len(ladder.orders):
+                return jsonify({"error": f"Invalid order_index. Must be between 1 and {len(ladder.orders)}"}), 400
+            target_order = ladder.orders[actual_order_index]
+            target_order_num = order_index  # Keep 1-based for display
         else:
             # Use current order
             target_order = ladder.get_current_order()
             if not target_order:
                 return jsonify({"error": f"No current order for {symbol}. All orders may be completed."}), 400
+            actual_order_index = ladder.current_order_index
             target_order_num = ladder.current_order_index + 1
+        
+        # Check if order has already been reinstated (one-time only)
+        db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+        if actual_order_index < len(db_orders):
+            db_order = db_orders[actual_order_index]
+            if db_order.reinstated:
+                return jsonify({
+                    "error": f"Order {target_order_num} for {symbol} has already been reinstated. Reinstatement is a one-time operation.",
+                    "current_status": target_order.status
+                }), 400
         
         # Check if order is in a state that can be re-instated
         if target_order.status not in ["cancelled", "expired", "rejected", "pending_cancel"]:
@@ -1090,14 +1230,14 @@ def reinstate_gtt_order():
         target_order.status = "pending"
         target_order.order_id = None  # Clear so we can place a new order with new ID
         
-        # Update database
-        manager.db.update_order_status(symbol, order_index if order_index is not None else ladder.current_order_index, "pending", None)
+        # Update database with reinstated flag set to True
+        manager.db.update_order_status(symbol, actual_order_index, "pending", None, reinstated=True)
         
         # If this was not the current order, we may need to adjust the current_order_index
-        if order_index is not None and order_index < ladder.current_order_index:
+        if actual_order_index is not None and actual_order_index < ladder.current_order_index:
             # Re-instate an earlier order - reset to that order
-            manager.db.update_current_order_index(symbol, order_index)
-            logger.info(f"Re-instated order {target_order_num} for {symbol} and reset current_order_index to {order_index}")
+            manager.db.update_current_order_index(symbol, actual_order_index)
+            logger.info(f"Re-instated order {target_order_num} for {symbol} and reset current_order_index to {actual_order_index}")
         else:
             logger.info(f"Re-instated order {target_order_num} for {symbol} (status: {old_status} -> pending)")
         
@@ -1143,7 +1283,7 @@ def reinstate_gtt_order():
             "success": True,
             "message": f"Order {target_order_num} for {symbol} has been re-instated",
             "symbol": symbol,
-            "order_index": order_index if order_index is not None else ladder.current_order_index,
+            "order_index": actual_order_index,
             "order_num": target_order_num,
             "previous_status": old_status,
             "previous_order_id": old_order_id,  # Include old order_id in response
@@ -1287,6 +1427,274 @@ def upload_crypto_csv():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/download-stocks-template', methods=['GET'])
+@require_auth
+def download_stocks_template():
+    """Download stocks/ETFs CSV template"""
+    try:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        template_path = os.path.join(project_root, 'data', 'gtt-stocks-template.csv')
+        
+        from flask import send_file
+        return send_file(
+            template_path,
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name='gtt-stocks-template.csv'
+        )
+    except Exception as e:
+        logger.error(f"Error downloading stocks template: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/download-crypto-template', methods=['GET'])
+@require_auth
+def download_crypto_template():
+    """Download crypto CSV template"""
+    try:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        template_path = os.path.join(project_root, 'data', 'gtt-crypto-template.csv')
+        
+        from flask import send_file
+        return send_file(
+            template_path,
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name='gtt-crypto-template.csv'
+        )
+    except Exception as e:
+        logger.error(f"Error downloading crypto template: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/preview-csv', methods=['POST'])
+@require_auth
+def preview_csv():
+    """Preview CSV file before upload - validates and returns parsed data"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Validate file extension
+        if not file.filename.endswith('.csv'):
+            return jsonify({"error": "File must be a CSV file"}), 400
+        
+        # Get asset type from request
+        asset_type = request.form.get('asset_type', 'stock')  # 'stock' or 'crypto'
+        
+        # Read and parse CSV
+        import csv
+        import tempfile
+        import os
+        
+        # Save to temp file
+        temp_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
+        file.save(temp_file.name)
+        temp_file.close()
+        
+        preview_data = []
+        errors = []
+        warnings = []
+        
+        try:
+            # Try multiple encodings
+            encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
+            csv_content = None
+            used_encoding = None
+            
+            for encoding in encodings:
+                try:
+                    with open(temp_file.name, 'r', encoding=encoding) as f:
+                        csv_content = f.read()
+                        used_encoding = encoding
+                        break
+                except UnicodeDecodeError:
+                    continue
+            
+            if csv_content is None:
+                errors.append("Unable to read CSV file. File encoding is not supported. Please save the file as UTF-8.")
+                return jsonify({
+                    "success": False,
+                    "error": "File encoding error",
+                    "errors": errors,
+                    "preview": [],
+                    "warnings": []
+                }), 400
+            
+            # Parse CSV
+            import io
+            reader = csv.DictReader(io.StringIO(csv_content))
+            
+            # Check for required columns
+            fieldnames = reader.fieldnames
+            if not fieldnames:
+                errors.append("CSV file appears to be empty or has no header row")
+                return jsonify({
+                    "success": False,
+                    "error": "Invalid CSV format",
+                    "errors": errors,
+                    "preview": [],
+                    "warnings": []
+                }), 400
+            
+            # Normalize fieldnames (strip whitespace)
+            normalized_fieldnames = [f.strip() for f in fieldnames]
+            
+            # Check for required columns
+            has_company = 'Company' in normalized_fieldnames
+            has_symbol = 'Symbol' in normalized_fieldnames or 'Account' in normalized_fieldnames
+            
+            if not has_company:
+                errors.append("CSV file is missing required column: 'Company'")
+            if not has_symbol:
+                errors.append("CSV file is missing required column: 'Symbol' (or 'Account' for legacy format)")
+            
+            if errors:
+                return jsonify({
+                    "success": False,
+                    "error": "Missing required columns",
+                    "errors": errors,
+                    "preview": [],
+                    "warnings": []
+                }), 400
+            
+            rows = list(reader)
+            
+            if not rows:
+                errors.append("CSV file has header but no data rows")
+                return jsonify({
+                    "success": False,
+                    "error": "Empty CSV file",
+                    "errors": errors,
+                    "preview": [],
+                    "warnings": []
+                }), 400
+            
+            for row_idx, row in enumerate(rows, start=2):  # Start at 2 (row 1 is header)
+                try:
+                    # Normalize column names by stripping whitespace
+                    normalized_row = {k.strip(): v for k, v in row.items()}
+                    
+                    csv_company = normalized_row.get('Company', '').strip()
+                    # Support both "Symbol" (new) and "Account" (legacy) for backward compatibility
+                    symbol = normalized_row.get('Symbol', normalized_row.get('Account', '')).strip()
+                    
+                    if not symbol:
+                        warnings.append(f"Row {row_idx}: Missing symbol (Symbol/Account column)")
+                        continue
+                    
+                    # Parse orders
+                    orders = []
+                    for i in range(1, 9):  # 1-8
+                        amt_key = f'Amt {i}'
+                        price_key = f'Price {i}'
+                        
+                        amt_str = normalized_row.get(amt_key, '').strip()
+                        price_str = normalized_row.get(price_key, '').strip()
+                        
+                        if not amt_str or not price_str:
+                            continue
+                        
+                        try:
+                            amount = float(amt_str)
+                            # Parse price (remove $ and commas)
+                            price_str_clean = price_str.replace('$', '').replace(',', '').strip()
+                            price = float(price_str_clean)
+                            
+                            if amount <= 0:
+                                errors.append(f"Row {row_idx}: Invalid amount '{amt_str}' for order {i}")
+                                continue
+                            if price <= 0:
+                                errors.append(f"Row {row_idx}: Invalid price '{price_str}' for order {i}")
+                                continue
+                            
+                            orders.append({
+                                "order_num": i,
+                                "amount": amount,
+                                "price": price
+                            })
+                        except ValueError as e:
+                            errors.append(f"Row {row_idx}: Could not parse order {i} - Amount: '{amt_str}', Price: '{price_str}'")
+                            continue
+                    
+                    if not orders:
+                        warnings.append(f"Row {row_idx}: No valid orders found for {symbol}")
+                        continue
+                    
+                    # Check if symbol is available (optional validation)
+                    is_available = None
+                    try:
+                        is_available = manager._is_asset_available_on_alpaca(symbol, asset_type=asset_type)
+                    except Exception:
+                        pass  # Skip validation if it fails, just show warning
+                    
+                    preview_data.append({
+                        "row": row_idx,
+                        "company": csv_company or symbol,
+                        "symbol": symbol,
+                        "orders": orders,
+                        "order_count": len(orders),
+                        "is_available": is_available
+                    })
+                    
+                    if is_available is False:
+                        warnings.append(f"Row {row_idx}: Symbol '{symbol}' may not be available on Alpaca")
+                except Exception as row_error:
+                    errors.append(f"Row {row_idx}: Error processing row - {str(row_error)}")
+                    continue
+        
+        except csv.Error as e:
+            logger.error(f"CSV parsing error: {e}", exc_info=True)
+            return jsonify({
+                "success": False,
+                "error": "CSV parsing error",
+                "errors": [f"Unable to parse CSV file: {str(e)}. Please check the file format."],
+                "preview": [],
+                "warnings": []
+            }), 400
+        except Exception as e:
+            logger.error(f"Error previewing CSV: {e}", exc_info=True)
+            return jsonify({
+                "success": False,
+                "error": "Unexpected error",
+                "errors": [f"Error analyzing CSV file: {str(e)}"],
+                "preview": [],
+                "warnings": []
+            }), 500
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
+        
+        return jsonify({
+            "success": True,
+            "preview": preview_data,
+            "errors": errors,
+            "warnings": warnings,
+            "total_rows": len(preview_data),
+            "total_orders": sum(len(item["orders"]) for item in preview_data)
+        })
+    except Exception as e:
+        logger.error(f"Error in preview_csv: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": "Unexpected error",
+            "errors": [f"Error processing CSV file: {str(e)}"],
+            "preview": [],
+            "warnings": []
+        }), 500
+
+
 @app.route('/api/edit-gtt-order', methods=['POST'])
 @require_auth
 def edit_gtt_order():
@@ -1414,20 +1822,39 @@ def get_chart_data(symbol: str):
             # For MAX, use a very old date (Alpaca's historical data goes back several years)
             start_date = datetime(2020, 1, 1)
         
-        # Create request
-        request_params = StockBarsRequest(
-            symbol_or_symbols=[symbol],
-            timeframe=timeframe,
-            start=start_date
-        )
+        # Determine asset type from manager ladders
+        asset_type = 'stock'  # Default to stock
+        chart_symbol = symbol  # Symbol to use for chart API
         
-        # Fetch bars
-        bars = manager.data_client.get_stock_bars(request_params)
+        if symbol in manager.ladders:
+            ladder = manager.ladders[symbol]
+            asset_type = ladder.asset_type
+            # For crypto, use symbol/USD format for chart API
+            if asset_type == 'crypto' and not symbol.endswith('/USD'):
+                chart_symbol = f"{symbol}/USD"
+        
+        # Create request based on asset type
+        if asset_type == 'crypto':
+            request_params = CryptoBarsRequest(
+                symbol_or_symbols=[chart_symbol],
+                timeframe=timeframe,
+                start=start_date
+            )
+            # Fetch crypto bars
+            bars = manager.crypto_data_client.get_crypto_bars(request_params)
+        else:
+            request_params = StockBarsRequest(
+                symbol_or_symbols=[chart_symbol],
+                timeframe=timeframe,
+                start=start_date
+            )
+            # Fetch stock bars
+            bars = manager.data_client.get_stock_bars(request_params)
         
         # Convert to list of dicts for JSON serialization
         bars_data = []
-        if bars and hasattr(bars, 'data') and symbol in bars.data:
-            for bar in bars.data[symbol]:
+        if bars and hasattr(bars, 'data') and chart_symbol in bars.data:
+            for bar in bars.data[chart_symbol]:
                 bars_data.append({
                     "timestamp": bar.timestamp.isoformat() if hasattr(bar.timestamp, 'isoformat') else str(bar.timestamp),
                     "open": float(bar.open) if bar.open else 0,
@@ -1449,7 +1876,10 @@ def get_chart_data(symbol: str):
                 orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500)  # Get more orders to include filled ones
                 alpaca_orders = manager.trading_client.get_orders(orders_request)
                 for order in alpaca_orders:
-                    if order.symbol == symbol:
+                    # Normalize symbol for matching (handle crypto symbol format differences)
+                    order_symbol = order.symbol
+                    normalized_order_symbol = order_symbol.replace('/USD', '') if '/USD' in order_symbol else order_symbol
+                    if normalized_order_symbol == symbol:
                         symbol_alpaca_orders[order.id] = {
                             'status': order.status.value if hasattr(order.status, 'value') else str(order.status),
                             'updated_at': order.updated_at.isoformat() if hasattr(order.updated_at, 'isoformat') else str(order.updated_at) if hasattr(order, 'updated_at') else None,

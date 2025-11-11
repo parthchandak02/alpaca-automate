@@ -73,7 +73,11 @@ class NotificationManager:
             with open(csv_path, 'r') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    symbol = row.get('Symbol', '').upper().strip()
+                    # Normalize column names by stripping whitespace
+                    normalized_row = {k.strip(): v for k, v in row.items()}
+                    
+                    # Support both "Symbol" (new) and "Account" (legacy) for backward compatibility
+                    symbol = normalized_row.get('Symbol', normalized_row.get('Account', '')).upper().strip()
                     if not symbol:
                         continue
                     
@@ -83,10 +87,10 @@ class NotificationManager:
                     while True:
                         amt_key = f'Amt {i}'
                         price_key = f'Price {i}'
-                        if amt_key not in row or price_key not in row:
+                        if amt_key not in normalized_row or price_key not in normalized_row:
                             break
-                        amt = row[amt_key].strip()
-                        price = row[price_key].strip()
+                        amt = normalized_row[amt_key].strip()
+                        price = normalized_row[price_key].strip()
                         if amt and price:
                             orders.append({
                                 'amount': amt,
@@ -97,7 +101,7 @@ class NotificationManager:
                     
                     if orders:
                         snapshot[symbol] = {
-                            'company': row.get('Company', ''),
+                            'company': normalized_row.get('Company', ''),
                             'orders': orders
                         }
         except Exception as e:

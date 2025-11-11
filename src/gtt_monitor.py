@@ -323,6 +323,11 @@ class GTTOrderManager:
         # Cache for asset names from Alpaca (to avoid repeated API calls)
         self._asset_name_cache: Dict[str, str] = {}
         
+        # Locks to prevent concurrent order placement for the same symbol
+        # This prevents race conditions where multiple threads/coroutines try to place the same order
+        self._order_placement_locks: Dict[str, threading.Lock] = {}
+        self._locks_lock = threading.Lock()  # Lock to protect the locks dictionary
+        
         # Initialize notification manager
         self.notification_manager = NotificationManager(self)
         
@@ -410,7 +415,7 @@ class GTTOrderManager:
             logger.debug(f"Error fetching asset name from Alpaca for {symbol}: {e}")
         
     def _is_asset_available_on_alpaca(self, symbol: str, asset_type: str = 'stock') -> bool:
-        """Check if asset is available/tradable on Alpaca"""
+        """Check if asset is available/tradable on Alpaca and matches the expected asset type"""
         # For crypto, try symbol/USD suffix first (Alpaca format: BTC/USD)
         # Also try the symbol as-is for stocks/ETFs
         if asset_type == 'crypto':
@@ -423,6 +428,20 @@ class GTTOrderManager:
                 # Try to get asset by symbol
                 asset = self.trading_client.get_asset(try_symbol)
                 if asset:
+                    # Verify asset class matches expected type
+                    asset_class = None
+                    if hasattr(asset, 'class'):
+                        asset_class = getattr(asset, 'class', None)
+                    elif hasattr(asset, 'asset_class'):
+                        asset_class = asset.asset_class
+                    
+                    # Check if asset class matches expected type
+                    if asset_class:
+                        expected_class = AssetClass.CRYPTO if asset_type == 'crypto' else AssetClass.US_EQUITY
+                        if asset_class != expected_class:
+                            logger.debug(f"Asset {try_symbol} has class {asset_class}, expected {expected_class}")
+                            continue  # Wrong asset class, try next format
+                    
                     # Check if asset is tradable
                     if hasattr(asset, 'tradable'):
                         if asset.tradable:
@@ -459,7 +478,7 @@ class GTTOrderManager:
     
     def load_orders_from_csv(self, csv_path: str, asset_type: str = 'stock'):
         """
-        Load sequential orders from CSV file with format: Company, Account, Amt 1, Price 1, ...
+        Load sequential orders from CSV file with format: Company, Symbol, Amt 1, Price 1, ...
         
         Args:
             csv_path: Path to CSV file
@@ -487,12 +506,15 @@ class GTTOrderManager:
             total_rows = len(rows)
             
             for row_idx, row in enumerate(rows):
-                # Handle column names with spaces
-                csv_company = row.get('Company ', row.get('Company', '')).strip()
-                symbol = row.get('Account ', row.get('Account', '')).strip()
+                # Normalize column names by stripping whitespace
+                normalized_row = {k.strip(): v for k, v in row.items()}
+                
+                csv_company = normalized_row.get('Company', '').strip()
+                # Support both "Symbol" (new) and "Account" (legacy) for backward compatibility
+                symbol = normalized_row.get('Symbol', normalized_row.get('Account', '')).strip()
                 
                 if not symbol:
-                    logger.warning(f"Skipping row with no Account/symbol: {csv_company}")
+                    logger.warning(f"Skipping row with no Symbol/Account column: {csv_company}")
                     continue
                 
                 # Validate symbol BEFORE processing
@@ -543,15 +565,13 @@ class GTTOrderManager:
                     pass
                 
                 # Parse all Amt/Price pairs (up to 8)
-                # Handle column names with/without trailing spaces
                 orders = []
                 for i in range(1, 9):  # 1-8
                     amt_key = f'Amt {i}'
                     price_key = f'Price {i}'
                     
-                    # Try with space, then without
-                    amt_str = row.get(amt_key, row.get(amt_key.strip(), '')).strip()
-                    price_str = row.get(price_key, row.get(price_key.strip(), '')).strip()
+                    amt_str = normalized_row.get(amt_key, '').strip()
+                    price_str = normalized_row.get(price_key, '').strip()
                     
                     if not amt_str or not price_str:
                         continue
@@ -654,10 +674,12 @@ class GTTOrderManager:
                 return
             
             # Check if we have a ladder for this symbol
-            if symbol not in self.ladders:
+            # Normalize symbol for lookup (crypto comes as BTC/USD, but we store as BTC)
+            normalized_symbol = symbol.replace('/USD', '') if '/USD' in symbol else symbol
+            if normalized_symbol not in self.ladders:
                 return
             
-            ladder = self.ladders[symbol]
+            ladder = self.ladders[normalized_symbol]
             current_order = ladder.get_current_order()
             
             if not current_order:
@@ -675,9 +697,13 @@ class GTTOrderManager:
             elif current_order.status == "pending" and ladder.current_order_index > 0:
                 # Subsequent orders: should have been auto-placed, but if not, place them now
                 # (This handles edge cases where auto-place might have failed)
-                logger.info(f"AUTO-PLACE: {symbol} - Order {ladder.current_order_index + 1} "
-                          f"(was pending, placing now)")
-                self._place_order(ladder, current_order, symbol)
+                # BUT: Check if order_id exists to prevent duplicates
+                if current_order.order_id is None:
+                    logger.info(f"AUTO-PLACE: {symbol} - Order {ladder.current_order_index + 1} "
+                              f"(was pending, placing now)")
+                    self._place_order(ladder, current_order, symbol)
+                else:
+                    logger.debug(f"SKIP AUTO-PLACE: {symbol} - Order {ladder.current_order_index + 1} already has order_id: {current_order.order_id}")
             
         except Exception as e:
             logger.error(f"Error handling quote: {e}")
@@ -691,33 +717,49 @@ class GTTOrderManager:
             orders_request = GetOrdersRequest(limit=100)
             alpaca_orders = self.trading_client.get_orders(orders_request)
             
-            synced_count = 0
+            # Create a mapping of normalized symbols to orders
+            # Normalize crypto symbols (BTC/USD -> BTC) for matching
+            alpaca_orders_by_symbol = {}
             for alpaca_order in alpaca_orders:
                 symbol = alpaca_order.symbol
+                # Normalize symbol for matching (remove /USD suffix for crypto)
+                normalized_symbol = symbol.replace('/USD', '') if '/USD' in symbol else symbol
+                if normalized_symbol not in alpaca_orders_by_symbol:
+                    alpaca_orders_by_symbol[normalized_symbol] = []
+                alpaca_orders_by_symbol[normalized_symbol].append(alpaca_order)
+            
+            synced_count = 0
+            for symbol, ladder in self.ladders.items():
+                # Get orders for this symbol (handles crypto symbol format differences and -STOCK suffix)
+                symbol_alpaca_orders = alpaca_orders_by_symbol.get(symbol, [])
                 
-                # Check if we have a ladder for this symbol
-                if symbol not in self.ladders:
+                # Also check for -STOCK symbols (e.g., COMP-STOCK -> COMP)
+                if not symbol_alpaca_orders and symbol.endswith('-STOCK'):
+                    base_symbol = symbol.replace('-STOCK', '')
+                    symbol_alpaca_orders = alpaca_orders_by_symbol.get(base_symbol, [])
+                
+                if not symbol_alpaca_orders:
                     continue
-                
-                ladder = self.ladders[symbol]
                 
                 # Match orders by symbol and limit price across all orders in the ladder
                 for idx, order in enumerate(ladder.orders):
-                    if (alpaca_order.limit_price and 
-                        abs(float(alpaca_order.limit_price) - order.price) < 0.01):
-                        # Found a match!
-                        if order.status == "pending" and not order.order_id:
-                            order.order_id = alpaca_order.id
-                            # Use actual Alpaca status
-                            alpaca_status = alpaca_order.status.value if hasattr(alpaca_order.status, 'value') else str(alpaca_order.status)
-                            order.status = alpaca_status.lower() if alpaca_status else "placed"
-                            
-                            # Update database
-                            self.db.update_order_status(symbol, idx, order.status, order.order_id)
-                            
-                            synced_count += 1
-                            logger.info(f"SYNCED: {symbol} Order {idx + 1} - "
-                                      f"Found order {alpaca_order.id} in Alpaca (Status: {alpaca_status})")
+                    for alpaca_order in symbol_alpaca_orders:
+                        if (alpaca_order.limit_price and 
+                            abs(float(alpaca_order.limit_price) - order.price) < 0.01):
+                            # Found a match!
+                            if order.status == "pending" and not order.order_id:
+                                order.order_id = alpaca_order.id
+                                # Use actual Alpaca status
+                                alpaca_status = alpaca_order.status.value if hasattr(alpaca_order.status, 'value') else str(alpaca_order.status)
+                                order.status = alpaca_status.lower() if alpaca_status else "placed"
+                                
+                                # Update database
+                                self.db.update_order_status(symbol, idx, order.status, order.order_id)
+                                
+                                synced_count += 1
+                                logger.info(f"SYNCED: {symbol} Order {idx + 1} - "
+                                          f"Found order {alpaca_order.id} in Alpaca (Status: {alpaca_status})")
+                                break  # Found match, move to next order
             
             # After syncing, update current_order_index to point to first unplaced order
             for symbol, ladder in self.ladders.items():
@@ -755,19 +797,34 @@ class GTTOrderManager:
             for alpaca_order in alpaca_orders:
                 alpaca_orders_by_id[alpaca_order.id] = alpaca_order
                 symbol = alpaca_order.symbol
-                if symbol not in alpaca_orders_by_symbol:
-                    alpaca_orders_by_symbol[symbol] = []
-                alpaca_orders_by_symbol[symbol].append(alpaca_order)
+                # Normalize symbol for matching (remove /USD suffix for crypto)
+                normalized_symbol = symbol.replace('/USD', '') if '/USD' in symbol else symbol
+                if normalized_symbol not in alpaca_orders_by_symbol:
+                    alpaca_orders_by_symbol[normalized_symbol] = []
+                alpaca_orders_by_symbol[normalized_symbol].append(alpaca_order)
             
             synced_count = 0
             updated_count = 0
             
             # For each symbol we're tracking, check all GTT orders
             for symbol, ladder in self.ladders.items():
-                if symbol not in alpaca_orders_by_symbol:
-                    continue
+                # For crypto, also check symbol/USD format
+                # For -STOCK symbols, also check base symbol (COMP-STOCK -> COMP)
+                symbols_to_check = [symbol]
+                if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
+                    symbols_to_check.append(f"{symbol}/USD")
+                # Also check for -STOCK symbols (e.g., COMP-STOCK -> COMP)
+                if symbol.endswith('-STOCK'):
+                    base_symbol = symbol.replace('-STOCK', '')
+                    symbols_to_check.append(base_symbol)
                 
-                symbol_alpaca_orders = alpaca_orders_by_symbol[symbol]
+                symbol_alpaca_orders = []
+                for check_symbol in symbols_to_check:
+                    if check_symbol in alpaca_orders_by_symbol:
+                        symbol_alpaca_orders.extend(alpaca_orders_by_symbol[check_symbol])
+                
+                if not symbol_alpaca_orders:
+                    continue
                 
                 # Check each GTT order
                 for idx, gtt_order in enumerate(ladder.orders):
@@ -1071,25 +1128,40 @@ class GTTOrderManager:
             logger.error(f"Error checking order status for {order_id}: {e}")
             return None
     
+    def _get_order_lock(self, symbol: str) -> threading.Lock:
+        """Get or create a lock for a specific symbol to prevent concurrent order placement"""
+        with self._locks_lock:
+            if symbol not in self._order_placement_locks:
+                self._order_placement_locks[symbol] = threading.Lock()
+            return self._order_placement_locks[symbol]
+    
     def _place_order(self, ladder: SymbolLadder, order: SequentialOrder, symbol: str):
         """Place order when trigger condition is met"""
-        if order.status != "pending":
-            return  # Already placed
+        # Get lock for this symbol to prevent concurrent order placement
+        order_lock = self._get_order_lock(symbol)
         
-        try:
-            # Find the order index in the ladder
-            order_index = None
-            for idx, o in enumerate(ladder.orders):
-                if o is order:
-                    order_index = idx
-                    break
+        with order_lock:
+            # Double-check after acquiring lock: prevent duplicate orders
+            # Check both status AND order_id to be safe
+            if order.status != "pending" or order.order_id is not None:
+                if order.order_id:
+                    logger.debug(f"SKIP PLACE: {symbol} - Order already placed (status: {order.status}, order_id: {order.order_id})")
+                return  # Already placed or not pending
             
-            if order_index is None:
-                logger.error(f"Order not found in ladder for {symbol}")
-                return
-            
-            order_num = order_index + 1
-            total_orders = len(ladder.orders)
+            try:
+                # Find the order index in the ladder
+                order_index = None
+                for idx, o in enumerate(ladder.orders):
+                    if o is order:
+                        order_index = idx
+                        break
+                
+                if order_index is None:
+                    logger.error(f"Order not found in ladder for {symbol}")
+                    return
+                
+                order_num = order_index + 1
+                total_orders = len(ladder.orders)
             
             # Check account buying power before placing order
             account = self.trading_client.get_account()
@@ -1127,9 +1199,17 @@ class GTTOrderManager:
                 )
                 return
             
+            # Format symbol correctly for order placement
+            # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
+            order_symbol = symbol
+            if ladder.asset_type == 'crypto':
+                # Check if symbol already has /USD suffix
+                if not symbol.endswith('/USD'):
+                    order_symbol = f"{symbol}/USD"
+            
             # Place limit order
             order_request = LimitOrderRequest(
-                symbol=symbol,
+                symbol=order_symbol,
                 qty=order.amount,
                 side=OrderSide.BUY,
                 limit_price=order.price,
@@ -1192,13 +1272,125 @@ class GTTOrderManager:
                 action='placed',
                 price=order.price,
                 amount=order.amount,
-                order_id=placed_order.id
-            )
-            
-        except APIError as e:
-            logger.error(f"Error placing order for {symbol}: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error placing order for {symbol}: {e}")
+                order_num = order_index + 1
+                total_orders = len(ladder.orders)
+                
+                # Check account buying power before placing order
+                account = self.trading_client.get_account()
+                buying_power = float(account.buying_power)
+                order_value = order.price * order.amount
+                
+                if order_value > buying_power:
+                    logger.warning(f"Insufficient buying power for {symbol}. "
+                                 f"Required: ${order_value:.2f}, Available: ${buying_power:.2f}")
+                    
+                    # Send email notification for insufficient buying power
+                    self._send_email_notification(
+                        title="⚠️ Insufficient Buying Power",
+                        description=f"**{symbol}** - Order {order_num} could not be placed due to insufficient buying power.",
+                        fields=[
+                            {"name": "💰 Required", "value": f"${order_value:.2f}", "inline": True},
+                            {"name": "💵 Available", "value": f"${buying_power:.2f}", "inline": True},
+                            {"name": "📊 Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
+                            {"name": "📈 Order Details", "value": f"Limit: ${order.price:.2f}, Qty: {order.amount} shares", "inline": False},
+                        ],
+                        footer_text=f"{ladder.company} • Order {order_num}/{total_orders} • Action Required"
+                    )
+                    
+                    # Send Discord notification
+                    self._send_discord_notification(
+                        title="⚠️ Insufficient Buying Power",
+                        description=f"**{symbol}** - Order {order_num} could not be placed",
+                        color=0xff9900,  # Orange
+                        fields=[
+                            {"name": "💰 Required", "value": f"${order_value:.2f}", "inline": True},
+                            {"name": "💵 Available", "value": f"${buying_power:.2f}", "inline": True},
+                            {"name": "📊 Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
+                        ],
+                        footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
+                    )
+                    return
+                
+                # Format symbol correctly for order placement
+                # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
+                order_symbol = symbol
+                if ladder.asset_type == 'crypto':
+                    # Check if symbol already has /USD suffix
+                    if not symbol.endswith('/USD'):
+                        order_symbol = f"{symbol}/USD"
+                
+                # Place limit order
+                order_request = LimitOrderRequest(
+                    symbol=order_symbol,
+                    qty=order.amount,
+                    side=OrderSide.BUY,
+                    limit_price=order.price,
+                    time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
+                )
+                
+                placed_order = self.trading_client.submit_order(order_data=order_request)
+                order.order_id = placed_order.id
+                # Use actual Alpaca status (could be "new", "accepted", etc.)
+                alpaca_status = placed_order.status.value if hasattr(placed_order.status, 'value') else str(placed_order.status)
+                order.status = alpaca_status.lower() if alpaca_status else "placed"
+                
+                # Update database
+                self.db.update_order_status(symbol, order_index, order.status, order.order_id)
+                
+                # Invalidate cache so changes are reflected
+                self._invalidate_ladders_cache()
+                
+                logger.info(f"ORDER PLACED: {symbol} - Order {order_num} "
+                           f"Limit: ${order.price:.2f}, "
+                           f"Qty: {order.amount}, Order ID: {placed_order.id}")
+                
+                console.print(f"[bold green]✓ ORDER PLACED[/bold green]: {symbol} - Order {order_num} "
+                             f"Limit: [cyan]${order.price:.2f}[/cyan], "
+                             f"Qty: [yellow]{order.amount}[/yellow], "
+                             f"Order ID: [dim]{placed_order.id}[/dim]")
+                
+                # Send Discord notification for order placed
+                self._send_discord_notification(
+                    title="✅ Order Placed",
+                    description=f"**{symbol}** - Order {order_num} of {total_orders} has been placed",
+                    color=0x00ff00,  # Green (will be converted to decimal)
+                    fields=[
+                        {"name": "💰 Limit Price", "value": f"${order.price:.2f}", "inline": True},
+                        {"name": "📊 Quantity", "value": f"{order.amount} shares", "inline": True},
+                        {"name": "🆔 Order ID", "value": f"`{placed_order.id[:8]}...`", "inline": False},
+                        {"name": "📈 Status", "value": "**Placed** - Waiting for execution", "inline": False},
+                    ],
+                    footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
+                )
+                
+                # Send email notification for order placed
+                self._send_email_notification(
+                    title="✅ Order Placed",
+                    description=f"{symbol} - Order {order_num} of {total_orders} has been placed",
+                    fields=[
+                        {"name": "Limit Price", "value": f"${order.price:.2f}"},
+                        {"name": "Quantity", "value": f"{order.amount} shares"},
+                        {"name": "Order ID", "value": placed_order.id[:8] + "..."},
+                        {"name": "Status", "value": "Placed - Waiting for execution"},
+                    ],
+                    footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
+                )
+                
+                # Record activity for daily/weekly summaries
+                self.notification_manager.record_order_activity(
+                    symbol=symbol,
+                    company=ladder.company,
+                    order_num=order_num,
+                    action='placed',
+                    price=order.price,
+                    amount=order.amount,
+                    order_id=placed_order.id
+                )
+                
+            except APIError as e:
+                logger.error(f"Error placing order for {symbol}: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error placing order for {symbol}: {e}")
     
     def _place_order_with_cascade(self, ladder: SymbolLadder, symbol: str, current_price: float):
         """
@@ -1465,7 +1657,7 @@ class GTTOrderManager:
                         
                         # Immediately place the next order (don't wait for trigger)
                         next_order = ladder.get_current_order()
-                        if next_order and next_order.status == "pending":
+                        if next_order and next_order.status == "pending" and next_order.order_id is None:
                             next_order_num = ladder.current_order_index + 1
                             logger.info(f"AUTO-PLACE: {symbol} - Immediately placing Order {next_order_num} "
                                       f"at limit price ${next_order.price:.2f}")
@@ -1558,7 +1750,17 @@ class GTTOrderManager:
         symbols_to_stream = (prioritized_symbols + secondary_symbols)[:MAX_SYMBOLS_PER_CONNECTION]
         symbols_to_poll = all_symbols[MAX_SYMBOLS_PER_CONNECTION:]
         
-        logger.info(f"Starting WebSocket monitoring for {len(symbols_to_stream)}/{len(all_symbols)} symbols")
+        # Format symbols correctly for WebSocket subscription
+        # For crypto, Alpaca WebSocket requires symbol/USD format (e.g., BTC/USD)
+        formatted_symbols_to_stream = []
+        for symbol in symbols_to_stream:
+            ladder = self.ladders[symbol]
+            if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
+                formatted_symbols_to_stream.append(f"{symbol}/USD")
+            else:
+                formatted_symbols_to_stream.append(symbol)
+        
+        logger.info(f"Starting WebSocket monitoring for {len(formatted_symbols_to_stream)}/{len(all_symbols)} symbols")
         if symbols_to_poll:
             logger.info(f"Using polling mode for {len(symbols_to_poll)} additional symbols (exceeds WebSocket limit)")
             logger.debug(f"Polling symbols: {symbols_to_poll[:10]}{'...' if len(symbols_to_poll) > 10 else ''}")
@@ -1603,11 +1805,11 @@ class GTTOrderManager:
         
         # Subscribe to quotes for symbols within limit with async handler
         websocket_success = False
-        if symbols_to_stream:
+        if formatted_symbols_to_stream:
             try:
                 # Register the async handler for quotes
-                self.stream.subscribe_quotes(self._handle_quote, *symbols_to_stream)
-                logger.info(f"WebSocket subscribed to {len(symbols_to_stream)} symbols. Attempting to connect...")
+                self.stream.subscribe_quotes(self._handle_quote, *formatted_symbols_to_stream)
+                logger.info(f"WebSocket subscribed to {len(formatted_symbols_to_stream)} symbols. Attempting to connect...")
                 websocket_success = True
             except Exception as e:
                 error_msg = str(e).lower()
@@ -1828,9 +2030,13 @@ class GTTOrderManager:
                         self._place_order_with_cascade(ladder, symbol, price)
                 elif current_order.status == "pending" and ladder.current_order_index > 0:
                     # Subsequent orders: auto-place immediately
-                    triggered_count += 1
-                    logger.info(f"AUTO-PLACE (fallback): {symbol} - Order {ladder.current_order_index + 1}")
-                    self._place_order(ladder, current_order, symbol)
+                    # BUT: Check if order_id exists to prevent duplicates
+                    if current_order.order_id is None:
+                        triggered_count += 1
+                        logger.info(f"AUTO-PLACE (fallback): {symbol} - Order {ladder.current_order_index + 1}")
+                        self._place_order(ladder, current_order, symbol)
+                    else:
+                        logger.debug(f"SKIP AUTO-PLACE (fallback): {symbol} - Order {ladder.current_order_index + 1} already has order_id: {current_order.order_id}")
             
             if triggered_count > 0:
                 logger.debug(f"Checked triggers: {triggered_count} orders triggered")
@@ -1886,10 +2092,14 @@ class GTTOrderManager:
                             self._place_order_with_cascade(ladder, symbol, price)
                     elif current_order.status == "pending" and ladder.current_order_index > 0:
                         # Subsequent orders: auto-place immediately (shouldn't happen often, but handles edge cases)
-                        triggered_count += 1
-                        console.print(f"[bold yellow]AUTO-PLACE[/bold yellow]: {symbol} - Order {ladder.current_order_index + 1} "
-                                  f"at limit price [yellow]${current_order.price:.2f}[/yellow]")
-                        self._place_order(ladder, current_order, symbol)
+                        # BUT: Check if order_id exists to prevent duplicates
+                        if current_order.order_id is None:
+                            triggered_count += 1
+                            console.print(f"[bold yellow]AUTO-PLACE[/bold yellow]: {symbol} - Order {ladder.current_order_index + 1} "
+                                      f"at limit price [yellow]${current_order.price:.2f}[/yellow]")
+                            self._place_order(ladder, current_order, symbol)
+                        else:
+                            logger.debug(f"SKIP AUTO-PLACE (polling): {symbol} - Order {ladder.current_order_index + 1} already has order_id: {current_order.order_id}")
                 
                 if triggered_count == 0:
                     console.print(f"[dim]No triggers this iteration. Monitoring {len(prices)} symbols...[/dim]")

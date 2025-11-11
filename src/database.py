@@ -30,6 +30,7 @@ class GTTOrderRow:
     filled_at: Optional[str]
     is_available_on_alpaca: bool
     asset_type: str
+    reinstated: bool = False  # Default to False for backward compatibility
 
 
 class GTTOrderDatabase:
@@ -106,6 +107,14 @@ class GTTOrderDatabase:
                 # Column already exists, ignore
                 pass
             
+            # Migration: Add reinstated flag if it doesn't exist
+            try:
+                cursor.execute("ALTER TABLE gtt_orders ADD COLUMN reinstated INTEGER NOT NULL DEFAULT 0")
+                logger.info("Added reinstated column to gtt_orders table")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+            
             # Add index for asset_type
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gtt_asset_type ON gtt_orders(asset_type)")
             
@@ -175,28 +184,43 @@ class GTTOrderDatabase:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT * FROM gtt_orders 
+                SELECT *, COALESCE(reinstated, 0) as reinstated FROM gtt_orders 
                 WHERE symbol = ? 
                 ORDER BY order_index ASC
             """, (symbol,))
             
             rows = cursor.fetchall()
-            return [GTTOrderRow(**dict(row)) for row in rows]
+            # Convert rows to dicts and handle missing reinstated field
+            result = []
+            for row in rows:
+                row_dict = dict(row)
+                if 'reinstated' not in row_dict:
+                    row_dict['reinstated'] = False
+                result.append(GTTOrderRow(**row_dict))
+            return result
     
     def get_all_gtt_orders(self) -> List[GTTOrderRow]:
         """Get all GTT orders, grouped by symbol"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT * FROM gtt_orders 
+                SELECT *, COALESCE(reinstated, 0) as reinstated FROM gtt_orders 
                 ORDER BY symbol, order_index ASC
             """)
             
             rows = cursor.fetchall()
-            return [GTTOrderRow(**dict(row)) for row in rows]
+            # Convert rows to dicts and handle missing reinstated field
+            result = []
+            for row in rows:
+                row_dict = dict(row)
+                if 'reinstated' not in row_dict:
+                    row_dict['reinstated'] = False
+                result.append(GTTOrderRow(**row_dict))
+            return result
     
     def update_order_status(self, symbol: str, order_index: int, status: str, 
-                           order_id: Optional[str] = None, filled_at: Optional[str] = None):
+                           order_id: Optional[str] = None, filled_at: Optional[str] = None,
+                           reinstated: Optional[bool] = None):
         """
         Update order status and optionally order_id
         
@@ -206,6 +230,7 @@ class GTTOrderDatabase:
             status: New status
             order_id: Alpaca order ID (optional)
             filled_at: ISO timestamp when order was filled (optional)
+            reinstated: Whether order has been reinstated (optional)
         """
         now = datetime.utcnow().isoformat()
         
@@ -222,6 +247,10 @@ class GTTOrderDatabase:
             if filled_at is not None:
                 update_fields.append("filled_at = ?")
                 params.append(filled_at)
+            
+            if reinstated is not None:
+                update_fields.append("reinstated = ?")
+                params.append(1 if reinstated else 0)
             
             params.extend([symbol, order_index])
             

@@ -43,7 +43,8 @@ export default function LoginPage() {
         if (response.ok) {
           const data = await response.json()
           if (data.authenticated) {
-            router.push('/')
+            // Use full page reload to ensure cookie is available
+            window.location.href = '/'
             return
           }
         }
@@ -74,8 +75,10 @@ export default function LoginPage() {
       const data = await response.json()
 
       if (response.ok) {
-        // Successful login - redirect to main page
-        router.push('/')
+        // Successful login - use full page reload to ensure cookie is available
+        // This prevents blank screen issues with client-side routing
+        window.location.href = '/'
+        return
       } else {
         setError(data.error || 'Invalid password')
       }
