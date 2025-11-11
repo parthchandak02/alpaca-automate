@@ -274,7 +274,27 @@ export default function OrdersPage() {
   
   // SWR hooks for data fetching - automatic polling, no full page refresh
   // Disable fetching if not authenticated (will be enabled after auth check)
-  const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then(res => res.json())
+  const fetcher = async (url: string) => {
+    try {
+      const res = await fetch(url, { credentials: 'include' })
+      if (!res.ok) {
+        // If response is not OK, try to parse error message
+        let errorData
+        try {
+          errorData = await res.json()
+        } catch {
+          errorData = { error: `HTTP ${res.status}: ${res.statusText}` }
+        }
+        throw new Error(errorData.error || `HTTP ${res.status}`)
+      }
+      return res.json()
+    } catch (error) {
+      // Log error for debugging
+      console.error(`API fetch error for ${url}:`, error)
+      // Re-throw so SWR can handle it
+      throw error
+    }
+  }
   
   const { data: ordersData, error: ordersError, isLoading: ordersLoading } = useSWR(
     isAuthenticated === true ? `${apiBaseUrl}/api/orders` : null,
@@ -1424,9 +1444,43 @@ export default function OrdersPage() {
   
   // All hooks have been called - now render the UI
 
+  // Check for API errors
+  const hasApiError = ordersError || accountError || pricesError
+  const apiErrorMessages: string[] = []
+  if (ordersError) apiErrorMessages.push(`Orders: ${ordersError.message || 'Failed to load orders'}`)
+  if (accountError) apiErrorMessages.push(`Account: ${accountError.message || 'Failed to load account'}`)
+  if (pricesError) apiErrorMessages.push(`Prices: ${pricesError.message || 'Failed to load prices'}`)
+
   return (
     <div className="min-h-screen bg-background p-2 sm:p-4">
       <div className="max-w-7xl mx-auto space-y-4">
+        {/* Error Banner - Show API errors */}
+        {hasApiError && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-red-400 mb-1">Connection Error</h3>
+                <p className="text-xs text-red-300/80 mb-2">Unable to connect to backend API. Please check:</p>
+                <ul className="text-xs text-red-300/80 list-disc list-inside space-y-1">
+                  {apiErrorMessages.map((msg, i) => (
+                    <li key={i}>{msg}</li>
+                  ))}
+                </ul>
+                <p className="text-xs text-red-300/80 mt-2">
+                  API URL: <code className="bg-red-500/20 px-1 py-0.5 rounded">{apiBaseUrl}</code>
+                </p>
+                <button
+                  onClick={refreshData}
+                  className="mt-3 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded border border-red-500/30 transition-colors"
+                >
+                  Retry Connection
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
         {/* Header - Responsive Layout */}
         <div className="flex flex-col gap-3">
           {/* Top row: Title and Status */}
