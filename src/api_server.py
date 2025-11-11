@@ -363,6 +363,36 @@ def get_orders():
                 filled_at = order.filled_at.isoformat() if hasattr(order, 'filled_at') and order.filled_at and hasattr(order.filled_at, 'isoformat') else (str(order.filled_at) if hasattr(order, 'filled_at') and order.filled_at else None)
                 canceled_at = order.canceled_at.isoformat() if hasattr(order, 'canceled_at') and order.canceled_at and hasattr(order.canceled_at, 'isoformat') else (str(order.canceled_at) if hasattr(order, 'canceled_at') and order.canceled_at else None)
                 
+                # Get asset_class from Alpaca order (determines if stock or crypto)
+                asset_class = None
+                if hasattr(order, 'asset_class'):
+                    asset_class = order.asset_class
+                elif hasattr(order, 'class'):
+                    asset_class = getattr(order, 'class', None)
+                
+                # If not available on order, try to get from asset
+                if not asset_class:
+                    try:
+                        asset = manager.trading_client.get_asset(order.symbol)
+                        if asset:
+                            if hasattr(asset, 'asset_class'):
+                                asset_class = asset.asset_class
+                            elif hasattr(asset, 'class'):
+                                asset_class = getattr(asset, 'class', None)
+                    except Exception:
+                        pass  # If we can't get asset, we'll infer from symbol
+                
+                # Infer asset_class from symbol if still not available
+                if not asset_class:
+                    # Crypto symbols typically have /USD suffix or are common crypto symbols
+                    if '/USD' in order.symbol:
+                        asset_class = 'crypto'
+                    else:
+                        asset_class = 'us_equity'  # Default to stock
+                
+                # Normalize asset_class to 'stock' or 'crypto' for frontend
+                asset_type = 'crypto' if asset_class and ('crypto' in str(asset_class).lower() or asset_class == AssetClass.CRYPTO) else 'stock'
+                
                 active_orders.append({
                     "id": order.id,
                     "symbol": order.symbol,
@@ -375,6 +405,7 @@ def get_orders():
                     "filled_at": filled_at,
                     "canceled_at": canceled_at,
                     "filled_qty": float(order.filled_qty) if order.filled_qty else 0,
+                    "asset_type": asset_type,  # Add asset_type from Alpaca
                 })
             logger.info(f"Fetched {len(active_orders)} active orders from Alpaca")
         except Exception as e:
@@ -392,9 +423,10 @@ def get_orders():
             if is_initial_load:
                 set_loading_status(True, "Processing GTT orders", 3, 4, symbol, f"Processing {symbol} ({processed}/{total_symbols})...")
             
-            # Get all Alpaca orders for this symbol to sync statuses
+            # Get all Alpaca orders for this symbol to sync statuses and determine asset_type
             # Handle symbol normalization: COMP-STOCK -> COMP, BTC -> BTC/USD, etc.
             symbol_alpaca_orders = {}
+            symbol_asset_type = None  # Will be determined from actual Alpaca orders
             try:
                 for order in alpaca_orders_list:
                     order_symbol = order.symbol
@@ -411,8 +443,66 @@ def get_orders():
                     
                     if symbol_matches:
                         symbol_alpaca_orders[order.id] = order.status.value if hasattr(order.status, 'value') else str(order.status)
+                        
+                        # Determine asset_type from actual Alpaca order (not from CSV/database)
+                        if symbol_asset_type is None:
+                            # Get asset_class from Alpaca order
+                            asset_class = None
+                            if hasattr(order, 'asset_class'):
+                                asset_class = order.asset_class
+                            elif hasattr(order, 'class'):
+                                asset_class = getattr(order, 'class', None)
+                            
+                            # If not available on order, try to get from asset
+                            if not asset_class:
+                                try:
+                                    asset = manager.trading_client.get_asset(order.symbol)
+                                    if asset:
+                                        if hasattr(asset, 'asset_class'):
+                                            asset_class = asset.asset_class
+                                        elif hasattr(asset, 'class'):
+                                            asset_class = getattr(asset, 'class', None)
+                                except Exception:
+                                    pass
+                            
+                            # Determine asset_type from asset_class
+                            if asset_class:
+                                symbol_asset_type = 'crypto' if ('crypto' in str(asset_class).lower() or asset_class == AssetClass.CRYPTO) else 'stock'
+                            else:
+                                # Infer from symbol format
+                                symbol_asset_type = 'crypto' if '/USD' in order.symbol else 'stock'
             except Exception as e:
                 logger.debug(f"Error processing Alpaca orders for {symbol}: {e}")
+            
+            # Only include GTT orders that have actual Alpaca orders OR use asset_type from Alpaca
+            # If we couldn't determine asset_type from Alpaca orders, skip this symbol to avoid showing incorrect data
+            if symbol_asset_type is None:
+                # Try to determine from any matching Alpaca order by fetching asset
+                try:
+                    # Try different symbol formats
+                    symbols_to_try = [symbol, f"{symbol}/USD"] if not symbol.endswith('/USD') else [symbol]
+                    for try_symbol in symbols_to_try:
+                        try:
+                            asset = manager.trading_client.get_asset(try_symbol)
+                            if asset:
+                                asset_class = None
+                                if hasattr(asset, 'asset_class'):
+                                    asset_class = asset.asset_class
+                                elif hasattr(asset, 'class'):
+                                    asset_class = getattr(asset, 'class', None)
+                                
+                                if asset_class:
+                                    symbol_asset_type = 'crypto' if ('crypto' in str(asset_class).lower() or asset_class == AssetClass.CRYPTO) else 'stock'
+                                    break
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+            
+            # If still can't determine, use ladder's asset_type as fallback (but log warning)
+            if symbol_asset_type is None:
+                symbol_asset_type = ladder.asset_type
+                logger.warning(f"Could not determine asset_type from Alpaca for {symbol}, using ladder asset_type: {symbol_asset_type}")
             
             for idx, order in enumerate(ladder.orders):
                 # Determine status: use Alpaca status if order is placed, otherwise use internal status
@@ -430,7 +520,7 @@ def get_orders():
                         # Order might not exist anymore, keep as "placed" for now
                         pass
                 
-                # Get reinstated flag from database
+                # Get reinstated flag from database (only metadata, not order data)
                 db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
                 reinstated = False
                 if idx < len(db_orders):
@@ -448,7 +538,7 @@ def get_orders():
                     "current_order_index": ladder.current_order_index,
                     "is_current": idx == ladder.current_order_index,
                     "is_available_on_alpaca": ladder.is_available_on_alpaca,
-                    "asset_type": ladder.asset_type,  # 'stock' or 'crypto'
+                    "asset_type": symbol_asset_type,  # Use asset_type from Alpaca, not from CSV/database
                     "reinstated": reinstated,  # Whether this order has been reinstated before
                 })
         

@@ -182,7 +182,11 @@ interface ActiveOrder {
   limit_price: number | null
   status: string
   created_at: string
+  updated_at?: string | null
+  filled_at?: string | null
+  canceled_at?: string | null
   filled_qty: number
+  asset_type?: string  // 'stock' or 'crypto' - from Alpaca
 }
 
 interface GTTOrder {
@@ -1581,35 +1585,24 @@ export default function OrdersPage() {
     return grouped
   }, [gttOrders])
 
-  // Create a mapping of symbols to asset_type from GTT orders
-  const symbolAssetTypeMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    gttOrders.forEach((order: GTTOrder) => {
-      if (order.asset_type) {
-        map[order.symbol] = order.asset_type
-      }
-    })
-    return map
-  }, [gttOrders])
-
-  // Separate active orders by asset type (infer from GTT orders)
+  // Separate active orders by asset type (use asset_type from Alpaca directly)
   const stocksActiveOrders = useMemo(() => {
     return activeOrders.filter((order: ActiveOrder) => {
-      const assetType = symbolAssetTypeMap[order.symbol]
-      return assetType === 'stock' || !assetType // Default to stock if unknown
+      // Use asset_type directly from Alpaca order
+      return order.asset_type !== 'crypto'  // Default to stock if not crypto
     })
-  }, [activeOrders, symbolAssetTypeMap])
+  }, [activeOrders])
 
   const cryptoActiveOrders = useMemo(() => {
     return activeOrders.filter((order: ActiveOrder) => {
-      const assetType = symbolAssetTypeMap[order.symbol]
-      return assetType === 'crypto'
+      // Use asset_type directly from Alpaca order
+      return order.asset_type === 'crypto'
     })
-  }, [activeOrders, symbolAssetTypeMap])
+  }, [activeOrders])
 
-  // Separate GTT orders by asset type
+  // Separate GTT orders by asset_type (now determined from Alpaca, not CSV)
   const stocksGttOrders = useMemo(() => {
-    return gttOrders.filter((order: GTTOrder) => order.asset_type === 'stock' || !order.asset_type)
+    return gttOrders.filter((order: GTTOrder) => order.asset_type !== 'crypto')
   }, [gttOrders])
 
   const cryptoGttOrders = useMemo(() => {
