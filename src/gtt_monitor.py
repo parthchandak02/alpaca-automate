@@ -734,6 +734,126 @@ class GTTOrderManager:
         except Exception as e:
             logger.error(f"Error syncing with Alpaca orders: {e}", exc_info=True)
     
+    def sync_filled_orders_from_alpaca(self):
+        """
+        One-time sync: Match all filled orders from Alpaca with GTT orders and update database.
+        This fixes cases where orders were filled but the database wasn't updated.
+        """
+        logger.info("Starting one-time sync of filled orders from Alpaca...")
+        
+        try:
+            from alpaca.trading.enums import QueryOrderStatus
+            
+            # Get ALL orders from Alpaca (including filled, cancelled, etc.)
+            orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500)
+            alpaca_orders = self.trading_client.get_orders(orders_request)
+            
+            # Create a mapping of order_id -> Alpaca order for quick lookup
+            alpaca_orders_by_id = {}
+            alpaca_orders_by_symbol = {}
+            
+            for alpaca_order in alpaca_orders:
+                alpaca_orders_by_id[alpaca_order.id] = alpaca_order
+                symbol = alpaca_order.symbol
+                if symbol not in alpaca_orders_by_symbol:
+                    alpaca_orders_by_symbol[symbol] = []
+                alpaca_orders_by_symbol[symbol].append(alpaca_order)
+            
+            synced_count = 0
+            updated_count = 0
+            
+            # For each symbol we're tracking, check all GTT orders
+            for symbol, ladder in self.ladders.items():
+                if symbol not in alpaca_orders_by_symbol:
+                    continue
+                
+                symbol_alpaca_orders = alpaca_orders_by_symbol[symbol]
+                
+                # Check each GTT order
+                for idx, gtt_order in enumerate(ladder.orders):
+                    matched_alpaca_order = None
+                    
+                    # First try: Match by order_id if we have it
+                    if gtt_order.order_id and gtt_order.order_id in alpaca_orders_by_id:
+                        matched_alpaca_order = alpaca_orders_by_id[gtt_order.order_id]
+                    else:
+                        # Second try: Match by symbol + limit_price + quantity (fuzzy match)
+                        for alpaca_order in symbol_alpaca_orders:
+                            if (alpaca_order.limit_price and 
+                                abs(float(alpaca_order.limit_price) - gtt_order.price) < 0.01 and
+                                abs(float(alpaca_order.qty) - gtt_order.amount) < 0.01):
+                                # Found a match by price and quantity
+                                matched_alpaca_order = alpaca_order
+                                break
+                    
+                    if matched_alpaca_order:
+                        alpaca_status = matched_alpaca_order.status.value if hasattr(matched_alpaca_order.status, 'value') else str(matched_alpaca_order.status)
+                        alpaca_status_lower = alpaca_status.lower()
+                        
+                        # Get filled_at timestamp if filled
+                        filled_at = None
+                        if alpaca_status_lower == "filled":
+                            if hasattr(matched_alpaca_order, 'filled_at') and matched_alpaca_order.filled_at:
+                                filled_at = matched_alpaca_order.filled_at.isoformat() if hasattr(matched_alpaca_order.filled_at, 'isoformat') else str(matched_alpaca_order.filled_at)
+                        
+                        # Update if status changed or order_id is missing
+                        if (gtt_order.status.lower() != alpaca_status_lower or 
+                            gtt_order.order_id != matched_alpaca_order.id):
+                            
+                            # Update ladder order
+                            gtt_order.order_id = matched_alpaca_order.id
+                            gtt_order.status = alpaca_status_lower
+                            
+                            # Update database
+                            self.db.update_order_status(symbol, idx, alpaca_status_lower, matched_alpaca_order.id, filled_at)
+                            
+                            # Link completed order if filled
+                            if alpaca_status_lower == "filled":
+                                try:
+                                    db_orders = self.db.get_gtt_orders_by_symbol(symbol)
+                                    if idx < len(db_orders):
+                                        gtt_order_id = db_orders[idx].id
+                                        self.db.link_completed_order(
+                                            gtt_order_id=gtt_order_id,
+                                            alpaca_order_id=matched_alpaca_order.id,
+                                            symbol=symbol,
+                                            filled_at=filled_at
+                                        )
+                                except Exception as e:
+                                    logger.debug(f"Could not link completed order: {e}")
+                            
+                            updated_count += 1
+                            logger.info(f"SYNCED FILLED: {symbol} Order {idx + 1} - "
+                                      f"Status: {gtt_order.status} → {alpaca_status_lower}, "
+                                      f"Order ID: {matched_alpaca_order.id}")
+                            
+                            if gtt_order.status.lower() != alpaca_status_lower:
+                                synced_count += 1
+            
+            # Update current_order_index for all symbols after syncing
+            for symbol, ladder in self.ladders.items():
+                self._update_current_order_index(ladder)
+            
+            # Invalidate cache after syncing
+            self._invalidate_ladders_cache()
+            
+            logger.info(f"Sync complete: Updated {updated_count} order(s), "
+                      f"{synced_count} status change(s) detected")
+            
+            return {
+                "updated": updated_count,
+                "status_changes": synced_count,
+                "message": f"Synced {updated_count} order(s) from Alpaca"
+            }
+                
+        except Exception as e:
+            logger.error(f"Error syncing filled orders from Alpaca: {e}", exc_info=True)
+            return {
+                "error": str(e),
+                "updated": 0,
+                "status_changes": 0
+            }
+    
     def _update_current_order_index(self, ladder: SymbolLadder):
         """Update current_order_index to point to the first unplaced order"""
         # Start from the beginning and find the first order that is not placed/filled

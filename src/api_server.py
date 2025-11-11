@@ -1515,6 +1515,25 @@ def get_chart_data(symbol: str):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/sync-filled-orders', methods=['POST'])
+@require_auth
+def sync_filled_orders():
+    """
+    One-time sync: Match all filled orders from Alpaca with GTT orders and update database.
+    This fixes cases where orders were filled but the database wasn't updated.
+    """
+    logger.info("POST /api/sync-filled-orders - Request received")
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        result = manager.sync_filled_orders_from_alpaca()
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error syncing filled orders: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     # This will be run separately from the monitor
     api_port = int(os.getenv('PORT_API', '8080'))
