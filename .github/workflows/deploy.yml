@@ -29,12 +29,41 @@ jobs:
         working-directory: ./ui
         run: npm ci
 
+      - name: Verify environment variables
+        run: |
+          echo "Checking required environment variables..."
+          if [ -z "${{ secrets.NEXT_PUBLIC_API_HOST }}" ]; then
+            echo "❌ NEXT_PUBLIC_API_HOST is not set"
+            exit 1
+          fi
+          if [ -z "${{ secrets.NEXT_PUBLIC_API_PORT }}" ]; then
+            echo "❌ NEXT_PUBLIC_API_PORT is not set"
+            exit 1
+          fi
+          echo "✅ NEXT_PUBLIC_API_HOST: ${{ secrets.NEXT_PUBLIC_API_HOST }}"
+          echo "✅ NEXT_PUBLIC_API_PORT: ${{ secrets.NEXT_PUBLIC_API_PORT }}"
+
       - name: Build Next.js app
         working-directory: ./ui
-        run: npm run build
+        run: |
+          echo "Building Next.js app..."
+          npm run build
+          echo "Build completed. Checking output directory..."
+          ls -la out/ | head -20
         env:
           NEXT_PUBLIC_API_HOST: ${{ secrets.NEXT_PUBLIC_API_HOST }}
           NEXT_PUBLIC_API_PORT: ${{ secrets.NEXT_PUBLIC_API_PORT }}
+
+      - name: Verify build output
+        run: |
+          echo "Verifying build output exists..."
+          if [ ! -d "ui/out" ]; then
+            echo "❌ Build output directory 'ui/out' does not exist"
+            exit 1
+          fi
+          echo "✅ Build output directory exists"
+          echo "Files in ui/out:"
+          ls -la ui/out/ | head -20
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
@@ -44,4 +73,6 @@ jobs:
           projectName: alpaca
           directory: ui/out
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 

@@ -28,8 +28,8 @@ from watchdog.events import FileSystemEventHandler
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import LimitOrderRequest, GetOrdersRequest, GetAssetsRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus, AssetClass
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockLatestQuoteRequest
+from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
+from alpaca.data.requests import StockLatestQuoteRequest, CryptoLatestQuoteRequest
 from alpaca.data.live import StockDataStream
 from alpaca.common.exceptions import APIError
 from rich.console import Console
@@ -39,6 +39,7 @@ from rich.panel import Panel
 from rich import box
 import requests
 from .notifications import NotificationManager
+from .database import GTTOrderDatabase
 
 # Load environment variables
 load_dotenv()
@@ -116,6 +117,7 @@ class SymbolLadder:
     orders: List[SequentialOrder] = field(default_factory=list)
     current_order_index: int = 0  # Which order in the sequence we're on
     is_available_on_alpaca: bool = True  # Whether this asset is available/tradable on Alpaca
+    asset_type: str = 'stock'  # 'stock' or 'crypto'
     
     def get_current_order(self) -> Optional[SequentialOrder]:
         """Get the current order we're waiting to trigger"""
@@ -203,10 +205,10 @@ class CSVFileHandler(FileSystemEventHandler):
         
         # Reload from CSV files
         if stocks_csv and os.path.exists(stocks_csv):
-            self.manager.load_orders_from_csv(stocks_csv)
+            self.manager.load_orders_from_csv(stocks_csv, asset_type='stock')
         
         if crypto_csv and os.path.exists(crypto_csv):
-            self.manager.load_orders_from_csv(crypto_csv)
+            self.manager.load_orders_from_csv(crypto_csv, asset_type='crypto')
         
         # Restore order statuses where possible (matching by symbol and order index)
         for symbol, status_data in existing_statuses.items():
@@ -308,9 +310,15 @@ class GTTOrderManager:
         
         # Initialize data clients (they will use APCA_API_DATA_URL env var if set)
         self.data_client = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
+        self.crypto_data_client = CryptoHistoricalDataClient(api_key=api_key, secret_key=secret_key)
         self.stream = StockDataStream(api_key=api_key, secret_key=secret_key)
         
-        self.ladders: Dict[str, SymbolLadder] = {}  # symbol -> ladder
+        # Initialize database
+        self.db = GTTOrderDatabase()
+        
+        # Cache for ladders (loaded from database)
+        self._ladders_cache: Dict[str, SymbolLadder] = {}
+        self._ladders_cache_dirty = True  # Flag to indicate cache needs refresh
         
         # Cache for asset names from Alpaca (to avoid repeated API calls)
         self._asset_name_cache: Dict[str, str] = {}
@@ -320,6 +328,65 @@ class GTTOrderManager:
         
         # Log which API URLs are being used
         logger.info(f"Initialized Alpaca clients - Paper: {paper}, Trading URL: {trading_url}, Data URL: {data_url}")
+    
+    @property
+    def ladders(self) -> Dict[str, SymbolLadder]:
+        """
+        Get ladders from database (cached for performance)
+        This property maintains backward compatibility with existing code
+        """
+        if self._ladders_cache_dirty or not self._ladders_cache:
+            self._load_ladders_from_db()
+            self._ladders_cache_dirty = False
+        return self._ladders_cache
+    
+    def _load_ladders_from_db(self):
+        """Load all ladders from database into cache"""
+        self._ladders_cache = {}
+        
+        # Get all symbols
+        symbols = self.db.get_all_symbols()
+        
+        for symbol in symbols:
+            # Get orders for this symbol
+            db_orders = self.db.get_gtt_orders_by_symbol(symbol)
+            
+            if not db_orders:
+                continue
+            
+            # Convert database rows to SequentialOrder objects
+            orders = []
+            company = db_orders[0].company if db_orders else symbol
+            is_available = db_orders[0].is_available_on_alpaca if db_orders else True
+            asset_type = db_orders[0].asset_type if db_orders else 'stock'
+            
+            for db_order in db_orders:
+                order = SequentialOrder(
+                    amount=db_order.amount,
+                    price=db_order.price,
+                    order_id=db_order.order_id,
+                    status=db_order.status
+                )
+                orders.append(order)
+            
+            # Get current_order_index from database
+            current_order_index = self.db.get_current_order_index(symbol)
+            
+            # Create SymbolLadder
+            ladder = SymbolLadder(
+                symbol=symbol,
+                company=company,
+                orders=orders,
+                current_order_index=current_order_index,
+                is_available_on_alpaca=bool(is_available),
+                asset_type=asset_type
+            )
+            
+            self._ladders_cache[symbol] = ladder
+    
+    def _invalidate_ladders_cache(self):
+        """Mark ladders cache as dirty so it will be reloaded on next access"""
+        self._ladders_cache_dirty = True
     
     def _get_asset_name_from_alpaca(self, symbol: str) -> Optional[str]:
         """Fetch asset name/description from Alpaca API"""
@@ -342,11 +409,14 @@ class GTTOrderManager:
             # Any other error - log but don't fail
             logger.debug(f"Error fetching asset name from Alpaca for {symbol}: {e}")
         
-    def _is_asset_available_on_alpaca(self, symbol: str) -> bool:
+    def _is_asset_available_on_alpaca(self, symbol: str, asset_type: str = 'stock') -> bool:
         """Check if asset is available/tradable on Alpaca"""
-        # For crypto, try symbol with /USD suffix first (Alpaca format: BTC/USD)
+        # For crypto, try symbol/USD suffix first (Alpaca format: BTC/USD)
         # Also try the symbol as-is for stocks/ETFs
-        symbols_to_try = [symbol, f"{symbol}/USD"]
+        if asset_type == 'crypto':
+            symbols_to_try = [f"{symbol}/USD", symbol]  # Try crypto format first
+        else:
+            symbols_to_try = [symbol, f"{symbol}/USD"]  # Try stock format first
         
         for try_symbol in symbols_to_try:
             try:
@@ -387,9 +457,18 @@ class GTTOrderManager:
         except ValueError:
             return None
     
-    def load_orders_from_csv(self, csv_path: str):
-        """Load sequential orders from CSV file with format: Company, Account, Amt 1, Price 1, ..."""
-        logger.info(f"Loading orders from {csv_path}")
+    def load_orders_from_csv(self, csv_path: str, asset_type: str = 'stock'):
+        """
+        Load sequential orders from CSV file with format: Company, Account, Amt 1, Price 1, ...
+        
+        Args:
+            csv_path: Path to CSV file
+            asset_type: 'stock' or 'crypto' - determines how symbols are looked up
+        
+        Raises:
+            ValueError: If a symbol is not supported/available on Alpaca
+        """
+        logger.info(f"Loading {asset_type} orders from {csv_path}")
         
         # Try to update loading status if api_server is available
         # Use force_show=True to show loading even after initial load (for CSV reloads)
@@ -399,6 +478,8 @@ class GTTOrderManager:
             set_loading_status(True, f"Loading {filename}", 0, 0, "", f"Reading CSV file: {filename}", clear_symbols=True, force_show=True)
         except ImportError:
             pass
+        
+        unsupported_symbols = []
         
         with open(csv_path, 'r') as f:
             reader = csv.DictReader(f)
@@ -410,14 +491,48 @@ class GTTOrderManager:
                 csv_company = row.get('Company ', row.get('Company', '')).strip()
                 symbol = row.get('Account ', row.get('Account', '')).strip()
                 
-                # Try to get company name from Alpaca first, fall back to CSV
-                company = self._get_asset_name_from_alpaca(symbol) or csv_company or symbol
+                if not symbol:
+                    logger.warning(f"Skipping row with no Account/symbol: {csv_company}")
+                    continue
                 
-                # Check if asset is available on Alpaca
-                is_available = self._is_asset_available_on_alpaca(symbol)
+                # Validate symbol BEFORE processing
+                if asset_type == 'crypto':
+                    # For crypto, check if symbol is available on Alpaca
+                    # Try both symbol and symbol/USD format
+                    is_available = self._is_asset_available_on_alpaca(symbol, asset_type='crypto')
+                    
+                    if not is_available:
+                        error_msg = f"Cryptocurrency '{symbol}' is not available or not tradable on Alpaca. Please verify the symbol is correct and that it's supported."
+                        logger.error(error_msg)
+                        unsupported_symbols.append((symbol, csv_company or symbol, error_msg))
+                        continue
+                    
+                    company = csv_company or symbol
+                    logger.debug(f"Crypto symbol {symbol}: Using CSV company name '{company}'")
+                else:
+                    # For stocks, check if symbol is available on Alpaca
+                    is_available = self._is_asset_available_on_alpaca(symbol, asset_type='stock')
+                    
+                    if not is_available:
+                        error_msg = f"Stock/ETF '{symbol}' is not available or not tradable on Alpaca. Please verify the symbol is correct."
+                        logger.error(error_msg)
+                        unsupported_symbols.append((symbol, csv_company or symbol, error_msg))
+                        continue
+                    
+                    # For stocks, try Alpaca first
+                    company = self._get_asset_name_from_alpaca(symbol) or csv_company or symbol
+                
+                # Double-check availability (already checked above, but ensure consistency)
+                is_available = self._is_asset_available_on_alpaca(symbol, asset_type=asset_type)
                 
                 if not is_available:
-                    logger.warning(f"Symbol {symbol} ({company}) is not available/tradable on Alpaca")
+                    if asset_type == 'crypto':
+                        error_msg = f"Cryptocurrency '{symbol}' is not available for trading on Alpaca. Please verify the symbol is correct and that it's supported."
+                    else:
+                        error_msg = f"Stock/ETF '{symbol}' is not available or not tradable on Alpaca. Please verify the symbol is correct."
+                    logger.error(error_msg)
+                    unsupported_symbols.append((symbol, csv_company or symbol, error_msg))
+                    continue
                 
                 # Update loading status
                 try:
@@ -426,10 +541,6 @@ class GTTOrderManager:
                     set_loading_status(True, f"Loading {os.path.basename(csv_path)}", progress, total_rows, symbol, f"Loading {symbol} ({company})... [{progress}/{total_rows}]", force_show=True)
                 except ImportError:
                     pass
-                
-                if not symbol:
-                    logger.warning(f"Skipping row with no Account/symbol: {csv_company}")
-                    continue
                 
                 # Parse all Amt/Price pairs (up to 8)
                 # Handle column names with/without trailing spaces
@@ -463,14 +574,65 @@ class GTTOrderManager:
                     logger.warning(f"{symbol}: No valid orders found, skipping")
                     continue
                 
-                # Create ladder for this symbol
-                ladder = SymbolLadder(symbol=symbol, company=company, orders=orders, is_available_on_alpaca=is_available)
-                self.ladders[symbol] = ladder
+                # Preserve existing order statuses before deleting
+                existing_orders = self.db.get_gtt_orders_by_symbol(symbol)
+                existing_statuses = {}
+                existing_order_ids = {}
+                existing_current_index = self.db.get_current_order_index(symbol)
+                
+                for db_order in existing_orders:
+                    if db_order.order_index < len(orders):
+                        # Only preserve if order index matches and price matches (within 0.01)
+                        if abs(db_order.price - orders[db_order.order_index].price) < 0.01:
+                            existing_statuses[db_order.order_index] = db_order.status
+                            existing_order_ids[db_order.order_index] = db_order.order_id
+                
+                # Delete existing orders for this symbol (CSV reload replaces all orders)
+                self.db.delete_symbol_orders(symbol)
+                
+                # Import orders to database, preserving statuses where possible
+                for idx, order in enumerate(orders):
+                    # Use preserved status if available, otherwise use order's status
+                    preserved_status = existing_statuses.get(idx, order.status)
+                    preserved_order_id = existing_order_ids.get(idx, order.order_id)
+                    
+                    self.db.import_gtt_order(
+                        symbol=symbol,
+                        company=company,
+                        order_index=idx,
+                        amount=order.amount,
+                        price=order.price,
+                        is_available_on_alpaca=is_available,
+                        status=preserved_status,
+                        order_id=preserved_order_id,
+                        asset_type=asset_type
+                    )
+                
+                # Preserve current_order_index if it's still valid, otherwise reset to 0
+                if existing_current_index < len(orders):
+                    self.db.update_current_order_index(symbol, existing_current_index)
+                else:
+                    self.db.update_current_order_index(symbol, 0)
                 
                 logger.info(f"Loaded {symbol} ({company}): {len(orders)} sequential orders")
         
-        total_orders = sum(len(ladder.orders) for ladder in self.ladders.values())
-        logger.info(f"Loaded {len(self.ladders)} symbols with {total_orders} total orders")
+        # Raise error if any unsupported symbols were found
+        if unsupported_symbols:
+            error_details = []
+            for symbol, company, error_msg in unsupported_symbols:
+                error_details.append(f"  - {symbol} ({company}): {error_msg}")
+            
+            error_message = f"CSV contains unsupported symbols:\n" + "\n".join(error_details)
+            logger.error(error_message)
+            raise ValueError(error_message)
+        
+        # Invalidate cache so ladders reload from database
+        self._invalidate_ladders_cache()
+        
+        # Load ladders to get count
+        ladders = self.ladders
+        total_orders = sum(len(ladder.orders) for ladder in ladders.values())
+        logger.info(f"Loaded {len(ladders)} symbols with {total_orders} total orders")
         
         # Don't clear loading status here - let it persist until sync_with_alpaca_orders completes
         # This ensures frontend shows loading state during the entire initialization process
@@ -503,11 +665,13 @@ class GTTOrderManager:
             
             # Only check trigger for the very first order in the sequence
             # After that, orders are auto-placed when previous order fills
+            # When first order triggers, cascade through subsequent orders if price is below their triggers
             if current_order.status == "pending" and ladder.current_order_index == 0:
                 # First order: wait for trigger condition
                 if current_order.should_trigger(price):
                     logger.info(f"TRIGGER: {symbol} price ${price:.2f} <= trigger ${current_order.price:.2f}")
-                    self._place_order(ladder, current_order, symbol)
+                    # Use cascade trigger to place all eligible orders
+                    self._place_order_with_cascade(ladder, symbol, price)
             elif current_order.status == "pending" and ladder.current_order_index > 0:
                 # Subsequent orders: should have been auto-placed, but if not, place them now
                 # (This handles edge cases where auto-place might have failed)
@@ -547,6 +711,10 @@ class GTTOrderManager:
                             # Use actual Alpaca status
                             alpaca_status = alpaca_order.status.value if hasattr(alpaca_order.status, 'value') else str(alpaca_order.status)
                             order.status = alpaca_status.lower() if alpaca_status else "placed"
+                            
+                            # Update database
+                            self.db.update_order_status(symbol, idx, order.status, order.order_id)
+                            
                             synced_count += 1
                             logger.info(f"SYNCED: {symbol} Order {idx + 1} - "
                                       f"Found order {alpaca_order.id} in Alpaca (Status: {alpaca_status})")
@@ -554,6 +722,9 @@ class GTTOrderManager:
             # After syncing, update current_order_index to point to first unplaced order
             for symbol, ladder in self.ladders.items():
                 self._update_current_order_index(ladder)
+            
+            # Invalidate cache after syncing
+            self._invalidate_ladders_cache()
             
             if synced_count > 0:
                 logger.info(f"Synced {synced_count} order(s) with Alpaca")
@@ -586,6 +757,10 @@ class GTTOrderManager:
             else:
                 # Found first unplaced order - this is now the current order
                 break
+        
+        # Update database if index changed
+        if ladder.current_order_index != original_index:
+            self.db.update_current_order_index(ladder.symbol, ladder.current_order_index)
         
         if original_index != ladder.current_order_index and ladder.current_order_index < len(ladder.orders):
             logger.info(f"{ladder.symbol}: Updated current_order_index from {original_index} to {ladder.current_order_index} "
@@ -834,6 +1009,12 @@ class GTTOrderManager:
             alpaca_status = placed_order.status.value if hasattr(placed_order.status, 'value') else str(placed_order.status)
             order.status = alpaca_status.lower() if alpaca_status else "placed"
             
+            # Update database
+            self.db.update_order_status(symbol, order_index, order.status, order.order_id)
+            
+            # Invalidate cache so changes are reflected
+            self._invalidate_ladders_cache()
+            
             logger.info(f"ORDER PLACED: {symbol} - Order {order_num} "
                        f"Limit: ${order.price:.2f}, "
                        f"Qty: {order.amount}, Order ID: {placed_order.id}")
@@ -885,6 +1066,61 @@ class GTTOrderManager:
             logger.error(f"Error placing order for {symbol}: {e}")
         except Exception as e:
             logger.error(f"Unexpected error placing order for {symbol}: {e}")
+    
+    def _place_order_with_cascade(self, ladder: SymbolLadder, symbol: str, current_price: float):
+        """
+        Place orders with cascade trigger logic.
+        When Order #1 triggers, check if price is below Order #2, #3, etc. and place all eligible orders.
+        This maximizes execution speed when price drops below multiple trigger levels.
+        """
+        total_orders = len(ladder.orders)
+        placed_count = 0
+        
+        # Start from current_order_index (should be 0 for first trigger)
+        start_index = ladder.current_order_index
+        
+        # Place orders sequentially, checking each one
+        for idx in range(start_index, total_orders):
+            order = ladder.orders[idx]
+            
+            # Skip if order is already placed or filled
+            if order.status != "pending":
+                # If order is already placed/filled, advance index and continue
+                if idx == ladder.current_order_index:
+                    ladder.advance_to_next_order()
+                continue
+            
+            # Check if this order should trigger
+            # For Order #1: must meet trigger condition (already checked)
+            # For Order #2+: if price is below trigger, place immediately
+            if idx == start_index:
+                # First order: already verified it should trigger, place it
+                logger.info(f"CASCADE TRIGGER: {symbol} - Placing Order {idx + 1} at ${order.price:.2f} (price ${current_price:.2f} <= trigger)")
+                self._place_order(ladder, order, symbol)
+                placed_count += 1
+                
+                # Advance to next order for cascade check
+                if idx < total_orders - 1:
+                    ladder.advance_to_next_order()
+            else:
+                # Subsequent orders: check if price is below their trigger
+                if order.should_trigger(current_price):
+                    logger.info(f"CASCADE TRIGGER: {symbol} - Price ${current_price:.2f} <= Order {idx + 1} trigger ${order.price:.2f}, placing immediately")
+                    self._place_order(ladder, order, symbol)
+                    placed_count += 1
+                    
+                    # Advance to next order for cascade check
+                    if idx < total_orders - 1:
+                        ladder.advance_to_next_order()
+                else:
+                    # Price is not below this order's trigger, stop cascading
+                    logger.debug(f"CASCADE STOP: {symbol} - Order {idx + 1} trigger ${order.price:.2f} not met (price ${current_price:.2f}), stopping cascade")
+                    break
+        
+        if placed_count > 1:
+            logger.info(f"CASCADE COMPLETE: {symbol} - Placed {placed_count} orders in cascade (price ${current_price:.2f} was below {placed_count} trigger levels)")
+        elif placed_count == 1:
+            logger.info(f"CASCADE COMPLETE: {symbol} - Placed 1 order (only Order #1 trigger was met)")
     
     def _notify_order_status_change(self, symbol: str, ladder: SymbolLadder, order: SequentialOrder, 
                                      old_status: str, new_status: str, order_num: int, total_orders: int):
@@ -1041,6 +1277,48 @@ class GTTOrderManager:
                 # Update order status
                 order.status = alpaca_status
                 
+                # Update database
+                filled_at = None
+                if alpaca_status == "filled":
+                    # Get filled_at timestamp from Alpaca order if available
+                    try:
+                        alpaca_order = self.trading_client.get_order_by_id(order.order_id)
+                        if hasattr(alpaca_order, 'filled_at') and alpaca_order.filled_at:
+                            filled_at = alpaca_order.filled_at.isoformat() if hasattr(alpaca_order.filled_at, 'isoformat') else str(alpaca_order.filled_at)
+                    except Exception as e:
+                        logger.debug(f"Could not get filled_at for order {order.order_id}: {e}")
+                
+                self.db.update_order_status(symbol, idx, alpaca_status, order.order_id, filled_at)
+                
+                # Link completed order if filled or cancelled
+                if alpaca_status in ["filled", "cancelled", "expired", "rejected"]:
+                    try:
+                        # Get GTT order database ID
+                        db_orders = self.db.get_gtt_orders_by_symbol(symbol)
+                        if idx < len(db_orders):
+                            gtt_order_id = db_orders[idx].id
+                            canceled_at = None
+                            if alpaca_status in ["cancelled", "expired", "rejected"]:
+                                try:
+                                    alpaca_order = self.trading_client.get_order_by_id(order.order_id)
+                                    if hasattr(alpaca_order, 'canceled_at') and alpaca_order.canceled_at:
+                                        canceled_at = alpaca_order.canceled_at.isoformat() if hasattr(alpaca_order.canceled_at, 'isoformat') else str(alpaca_order.canceled_at)
+                                except Exception:
+                                    pass
+                            
+                            self.db.link_completed_order(
+                                gtt_order_id=gtt_order_id,
+                                alpaca_order_id=order.order_id,
+                                symbol=symbol,
+                                filled_at=filled_at,
+                                canceled_at=canceled_at
+                            )
+                    except Exception as e:
+                        logger.debug(f"Could not link completed order {order.order_id}: {e}")
+                
+                # Invalidate cache so changes are reflected
+                self._invalidate_ladders_cache()
+                
                 # Send notifications for status change
                 self._notify_order_status_change(
                     symbol, ladder, order, old_status, alpaca_status, order_num, total_orders
@@ -1107,6 +1385,10 @@ class GTTOrderManager:
                                   f"It will be re-placed when trigger condition is met again.")
                         order.status = "pending"
                         order.order_id = None  # Clear order ID so we can place a new one
+                        
+                        # Update database
+                        self.db.update_order_status(symbol, idx, "pending", None)
+                        self._invalidate_ladders_cache()
                     else:
                         # For non-current orders, log but don't auto-reset (user can manually re-instate)
                         logger.info(f"Order {order_num} for {symbol} expired/cancelled but is not the current order. "
@@ -1294,24 +1576,77 @@ class GTTOrderManager:
         if not symbols:
             return prices
         
-        try:
-            request = StockLatestQuoteRequest(symbol_or_symbols=symbols)
-            quotes = self.data_client.get_stock_latest_quote(request)
-            
-            for symbol, quote in quotes.items():
-                # Use ask_price if available (more current), otherwise bid_price
-                # For crypto, use mid price if available
-                if quote.ask_price and quote.bid_price:
-                    # Use mid price for better accuracy
-                    mid_price = (float(quote.ask_price) + float(quote.bid_price)) / 2
-                    prices[symbol] = mid_price
-                elif quote.ask_price:
-                    prices[symbol] = float(quote.ask_price)
-                elif quote.bid_price:
-                    prices[symbol] = float(quote.bid_price)
-            
-        except Exception as e:
-            logger.error(f"Error fetching current prices: {e}")
+        # Separate stocks and crypto symbols
+        stock_symbols = []
+        crypto_symbols = []
+        crypto_symbol_map = {}  # Maps BTC/USD -> BTC for lookup
+        
+        for symbol in symbols:
+            ladder = self.ladders.get(symbol)
+            if ladder and ladder.asset_type == 'crypto':
+                # Convert crypto symbol to Alpaca format (BTC -> BTC/USD)
+                crypto_symbol = f"{symbol}/USD"
+                crypto_symbols.append(crypto_symbol)
+                crypto_symbol_map[crypto_symbol] = symbol
+            else:
+                stock_symbols.append(symbol)
+        
+        # Fetch stock prices
+        if stock_symbols:
+            try:
+                request = StockLatestQuoteRequest(symbol_or_symbols=stock_symbols)
+                quotes = self.data_client.get_stock_latest_quote(request)
+                
+                for symbol, quote in quotes.items():
+                    # Use ask_price if available (more current), otherwise bid_price
+                    if quote.ask_price and quote.bid_price:
+                        # Use mid price for better accuracy
+                        mid_price = (float(quote.ask_price) + float(quote.bid_price)) / 2
+                        prices[symbol] = mid_price
+                    elif quote.ask_price:
+                        prices[symbol] = float(quote.ask_price)
+                    elif quote.bid_price:
+                        prices[symbol] = float(quote.bid_price)
+            except Exception as e:
+                logger.error(f"Error fetching stock prices: {e}")
+        
+        # Fetch crypto prices using CryptoHistoricalDataClient
+        if crypto_symbols:
+            try:
+                # Use CryptoLatestQuoteRequest for crypto symbols
+                request = CryptoLatestQuoteRequest(symbol_or_symbols=crypto_symbols)
+                quotes = self.crypto_data_client.get_crypto_latest_quote(request)
+                
+                for crypto_symbol_alpaca, quote in quotes.items():
+                    base_symbol = crypto_symbol_map.get(crypto_symbol_alpaca)
+                    if base_symbol:
+                        if quote.ask_price and quote.bid_price:
+                            # Use mid price for better accuracy
+                            mid_price = (float(quote.ask_price) + float(quote.bid_price)) / 2
+                            prices[base_symbol] = mid_price
+                        elif quote.ask_price:
+                            prices[base_symbol] = float(quote.ask_price)
+                        elif quote.bid_price:
+                            prices[base_symbol] = float(quote.bid_price)
+            except Exception as e:
+                logger.error(f"Error fetching crypto prices: {e}")
+                # Fallback: try individual symbol lookups
+                for crypto_symbol_alpaca in crypto_symbols:
+                    base_symbol = crypto_symbol_map[crypto_symbol_alpaca]
+                    try:
+                        request = CryptoLatestQuoteRequest(symbol_or_symbols=[crypto_symbol_alpaca])
+                        quotes = self.crypto_data_client.get_crypto_latest_quote(request)
+                        if crypto_symbol_alpaca in quotes:
+                            quote = quotes[crypto_symbol_alpaca]
+                            if quote.ask_price and quote.bid_price:
+                                mid_price = (float(quote.ask_price) + float(quote.bid_price)) / 2
+                                prices[base_symbol] = mid_price
+                            elif quote.ask_price:
+                                prices[base_symbol] = float(quote.ask_price)
+                            elif quote.bid_price:
+                                prices[base_symbol] = float(quote.bid_price)
+                    except Exception as e:
+                        logger.debug(f"Could not get price for {crypto_symbol_alpaca}: {e}")
         
         return prices
     
@@ -1351,11 +1686,13 @@ class GTTOrderManager:
                     continue
                 
                 # Only first order waits for trigger condition
+                # When first order triggers, cascade through subsequent orders if price is below their triggers
                 if current_order.status == "pending" and ladder.current_order_index == 0:
                     if current_order.should_trigger(price):
                         triggered_count += 1
                         logger.info(f"TRIGGER (fallback): {symbol} price ${price:.2f} <= trigger ${current_order.price:.2f}")
-                        self._place_order(ladder, current_order, symbol)
+                        # Use cascade trigger to place all eligible orders
+                        self._place_order_with_cascade(ladder, symbol, price)
                 elif current_order.status == "pending" and ladder.current_order_index > 0:
                     # Subsequent orders: auto-place immediately
                     triggered_count += 1
@@ -1407,17 +1744,18 @@ class GTTOrderManager:
                         continue
                     
                     # Only first order waits for trigger condition
-                    # Subsequent orders are auto-placed when previous order fills
+                    # When first order triggers, cascade through subsequent orders if price is below their triggers
                     if current_order.status == "pending" and ladder.current_order_index == 0:
                         if current_order.should_trigger(price):
                             triggered_count += 1
                             console.print(f"[bold green]✓ TRIGGER[/bold green]: {symbol} price [cyan]${price:.2f}[/cyan] <= trigger [yellow]${current_order.price:.2f}[/yellow]")
-                            self._place_order(ladder, current_order, symbol)
+                            # Use cascade trigger to place all eligible orders
+                            self._place_order_with_cascade(ladder, symbol, price)
                     elif current_order.status == "pending" and ladder.current_order_index > 0:
                         # Subsequent orders: auto-place immediately (shouldn't happen often, but handles edge cases)
                         triggered_count += 1
                         console.print(f"[bold yellow]AUTO-PLACE[/bold yellow]: {symbol} - Order {ladder.current_order_index + 1} "
-                                    f"at limit price [yellow]${current_order.price:.2f}[/yellow]")
+                                  f"at limit price [yellow]${current_order.price:.2f}[/yellow]")
                         self._place_order(ladder, current_order, symbol)
                 
                 if triggered_count == 0:
@@ -1486,36 +1824,45 @@ def main():
     api_port = int(os.getenv('PORT_API', '8080'))
     console.print(f"[green]✓[/green] API server started on [cyan]http://localhost:{api_port}[/cyan]")
     
-    # Load orders from CSV files in data/ directory
+    # Load orders from CSV files in data/ directory (only if database is empty)
     # Use gtt-live-stocks-etfs.csv and gtt-live-crypto.csv
+    # If database already has orders, skip CSV loading for faster startup
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(project_root, 'data')
     
-    stocks_csv = os.path.join(data_dir, 'gtt-live-stocks-etfs.csv')
-    crypto_csv = os.path.join(data_dir, 'gtt-live-crypto.csv')
+    # Check if database already has orders
+    db_has_orders = manager.db.has_orders()
     
-    if stocks_csv and os.path.exists(stocks_csv):
-        try:
-            from .api_server import set_loading_status
-            set_loading_status(True, "Loading stocks/ETFs", 0, 0, "", f"Loading from {os.path.basename(stocks_csv)}...", clear_symbols=True, force_show=True)
-        except ImportError:
-            pass
-        manager.load_orders_from_csv(stocks_csv)
-        console.print(f"[green]✓[/green] Loaded stocks/ETFs from [cyan]{os.path.basename(stocks_csv)}[/cyan]")
-    elif stocks_csv:
-        console.print(f"[yellow]⚠[/yellow] CSV file not found: {stocks_csv}")
-    
-    if crypto_csv and os.path.exists(crypto_csv):
-        try:
-            from .api_server import set_loading_status
-            set_loading_status(True, "Loading crypto", 0, 0, "", f"Loading from {os.path.basename(crypto_csv)}...", clear_symbols=True, force_show=True)
-        except ImportError:
-            pass
-        console.print(f"[cyan]ℹ[/cyan] Loading crypto orders from [cyan]{os.path.basename(crypto_csv)}[/cyan]")
-        manager.load_orders_from_csv(crypto_csv)
-        console.print(f"[green]✓[/green] Loaded crypto from [cyan]{os.path.basename(crypto_csv)}[/cyan]")
-    elif crypto_csv:
-        console.print(f"[yellow]⚠[/yellow] CSV file not found: {crypto_csv}")
+    if db_has_orders:
+        console.print(f"[cyan]ℹ[/cyan] Database already has orders. Skipping CSV loading for faster startup.")
+        console.print(f"[cyan]ℹ[/cyan] To reload from CSV, use the upload feature in the UI or modify CSV files (auto-reload enabled).")
+    else:
+        # Database is empty - load from CSV files (first-time setup)
+        stocks_csv = os.path.join(data_dir, 'gtt-live-stocks-etfs.csv')
+        crypto_csv = os.path.join(data_dir, 'gtt-live-crypto.csv')
+        
+        if stocks_csv and os.path.exists(stocks_csv):
+            try:
+                from .api_server import set_loading_status
+                set_loading_status(True, "Loading stocks/ETFs", 0, 0, "", f"Loading from {os.path.basename(stocks_csv)}...", clear_symbols=True, force_show=True)
+            except ImportError:
+                pass
+            manager.load_orders_from_csv(stocks_csv, asset_type='stock')
+            console.print(f"[green]✓[/green] Loaded stocks/ETFs from [cyan]{os.path.basename(stocks_csv)}[/cyan]")
+        elif stocks_csv:
+            console.print(f"[yellow]⚠[/yellow] CSV file not found: {stocks_csv}")
+        
+        if crypto_csv and os.path.exists(crypto_csv):
+            try:
+                from .api_server import set_loading_status
+                set_loading_status(True, "Loading crypto", 0, 0, "", f"Loading from {os.path.basename(crypto_csv)}...", clear_symbols=True, force_show=True)
+            except ImportError:
+                pass
+            console.print(f"[cyan]ℹ[/cyan] Loading crypto orders from [cyan]{os.path.basename(crypto_csv)}[/cyan]")
+            manager.load_orders_from_csv(crypto_csv, asset_type='crypto')
+            console.print(f"[green]✓[/green] Loaded crypto from [cyan]{os.path.basename(crypto_csv)}[/cyan]")
+        elif crypto_csv:
+            console.print(f"[yellow]⚠[/yellow] CSV file not found: {crypto_csv}")
     
     # Sync with existing Alpaca orders (in case orders were placed outside the monitor)
     try:

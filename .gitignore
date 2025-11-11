@@ -42,3 +42,7 @@ Thumbs.db
 data/gtt-live-stocks-etfs.csv
 data/gtt-live-crypto.csv
 
+# Database files (contains sensitive order data, order IDs, statuses)
+*.db
+data/*.db
+

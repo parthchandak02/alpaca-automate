@@ -44,13 +44,12 @@ module.exports = {
         USE_TEST_CSV: process.env.USE_TEST_CSV || 'true',
       },
       // Separate log files for backend
+      // Note: Log rotation is handled by pm2-logrotate module (10MB max, 3 retained)
       error_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-error.log'),
       out_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-out.log'),
       log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-backend-combined.log'),
       time: true,
       merge_logs: true,
-      max_size: '2M',
-      retain: 2,
       restart_delay: 5000,
       max_restarts: 10,
       min_uptime: '10s',
@@ -78,13 +77,12 @@ module.exports = {
         NEXT_PUBLIC_API_HOST: process.env.NEXT_PUBLIC_API_HOST, // For production (Railway)
       },
       // Separate log files for frontend
+      // Note: Log rotation is handled by pm2-logrotate module (10MB max, 3 retained)
       error_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-error.log'),
       out_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-out.log'),
       log_file: path.join(PROJECT_ROOT, 'logs', 'pm2-frontend-combined.log'),
       time: true,
       merge_logs: true,
-      max_size: '2M',
-      retain: 2,
       restart_delay: 5000,
       max_restarts: 10,
       min_uptime: '10s',
@@ -108,13 +106,12 @@ module.exports = {
         // Optional: Enable metrics
         TUNNEL_METRICS: '0.0.0.0:9090',
       },
+      // Note: Log rotation is handled by pm2-logrotate module (10MB max, 3 retained)
       error_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-error.log'),
       out_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-out.log'),
       log_file: path.join(PROJECT_ROOT, 'logs', 'cloudflare-tunnel-combined.log'),
       time: true,
       merge_logs: true,
-      max_size: '2M',
-      retain: 2,
       restart_delay: 5000,
       max_restarts: 10,
       min_uptime: '10s',

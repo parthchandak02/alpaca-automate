@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { StockChart } from "@/components/stock-chart"
 import { ColumnDef } from "@tanstack/react-table"
-import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw } from "lucide-react"
+import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, BarChart3, Target, Coins, Zap } from "lucide-react"
 
 // Reusable Icon Tooltip Component
 interface IconTooltipProps {
@@ -197,6 +197,7 @@ interface GTTOrder {
   current_order_index: number
   is_current: boolean
   is_available_on_alpaca?: boolean
+  asset_type?: string  // 'stock' or 'crypto'
 }
 
 interface AccountInfo {
@@ -462,6 +463,15 @@ export default function OrdersPage() {
   // Track which buttons are showing confirmation UI (persists across re-renders)
   const [confirmingButtons, setConfirmingButtons] = useState<Set<string>>(new Set())
   
+  // State for editing GTT orders
+  const [editingOrder, setEditingOrder] = useState<{symbol: string, orderIndex: number, field: 'price' | 'amount'} | null>(null)
+  const [editValue, setEditValue] = useState<string>("")
+  
+  // State for CSV uploads
+  const [uploadingStocks, setUploadingStocks] = useState(false)
+  const [uploadingCrypto, setUploadingCrypto] = useState(false)
+  const [uploadMessage, setUploadMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
+  
   // Search/filter state for GTT orders
   const [gttSearchQuery, setGttSearchQuery] = useState<string>("")
   const [expandedAccordion, setExpandedAccordion] = useState<string | null>(null) // Track which accordion is open for lazy loading
@@ -486,6 +496,103 @@ export default function OrdersPage() {
   }
   
   const isConfirming = (key: string) => confirmingButtons.has(key)
+
+  // Handle editing GTT orders
+  const handleStartEdit = (symbol: string, orderIndex: number, field: 'price' | 'amount', currentValue: number) => {
+    setEditingOrder({ symbol, orderIndex, field })
+    setEditValue(currentValue.toString())
+  }
+
+  const handleCancelEdit = () => {
+    setEditingOrder(null)
+    setEditValue("")
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingOrder || !editValue) return
+    
+    const numValue = parseFloat(editValue)
+    if (isNaN(numValue) || numValue <= 0) {
+      setUploadMessage({ type: 'error', text: 'Invalid value. Must be a positive number.' })
+      setTimeout(() => setUploadMessage(null), 3000)
+      return
+    }
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/edit-gtt-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          symbol: editingOrder.symbol,
+          order_index: editingOrder.orderIndex,
+          [editingOrder.field]: numValue,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to update order')
+      }
+
+      // Refresh data
+      refreshData()
+      setEditingOrder(null)
+      setEditValue("")
+      setUploadMessage({ type: 'success', text: 'Order updated successfully' })
+      setTimeout(() => setUploadMessage(null), 3000)
+    } catch (error: any) {
+      setUploadMessage({ type: 'error', text: error.message || 'Failed to update order' })
+      setTimeout(() => setUploadMessage(null), 3000)
+    }
+  }
+
+  // Handle CSV uploads
+  const handleCsvUpload = async (file: File, type: 'stocks' | 'crypto') => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    if (type === 'stocks') {
+      setUploadingStocks(true)
+    } else {
+      setUploadingCrypto(true)
+    }
+    setUploadMessage(null)
+
+    try {
+      const endpoint = type === 'stocks' ? '/api/upload-stocks-csv' : '/api/upload-crypto-csv'
+      const response = await fetch(`${apiBaseUrl}${endpoint}`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to upload CSV')
+      }
+
+      const result = await response.json()
+      setUploadMessage({ type: 'success', text: result.message || 'CSV uploaded successfully' })
+      setTimeout(() => setUploadMessage(null), 5000)
+      
+      // Refresh data after upload
+      setTimeout(() => {
+        refreshData()
+      }, 1000)
+    } catch (error: any) {
+      setUploadMessage({ type: 'error', text: error.message || 'Failed to upload CSV' })
+      setTimeout(() => setUploadMessage(null), 5000)
+    } finally {
+      if (type === 'stocks') {
+        setUploadingStocks(false)
+      } else {
+        setUploadingCrypto(false)
+      }
+    }
+  }
 
   // Update sync time display every second for real-time feel
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -755,13 +862,125 @@ export default function OrdersPage() {
     {
       accessorKey: "amount",
       header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Amount" filterType="number" />,
+      cell: ({ row }) => {
+        const order = row.original
+        const isEditing = editingOrder?.symbol === order.symbol && 
+                         editingOrder?.orderIndex === order.order_index - 1 && 
+                         editingOrder?.field === 'amount'
+        const canEdit = order.status.toLowerCase() !== 'filled'
+        
+        if (isEditing) {
+          return (
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                className="h-7 w-20 text-sm"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveEdit()
+                  if (e.key === 'Escape') handleCancelEdit()
+                }}
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                onClick={handleSaveEdit}
+              >
+                <Save className="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                onClick={handleCancelEdit}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          )
+        }
+        
+        return (
+          <div className="flex items-center gap-1 group">
+            <span>{order.amount}</span>
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => handleStartEdit(order.symbol, order.order_index - 1, 'amount', order.amount)}
+              >
+                <Edit2 className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        )
+      },
     },
     {
       accessorKey: "price",
       header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Trigger Price" filterType="number" />,
-      cell: ({ row }) => (
-        <span className="font-medium">{formatCurrency(row.original.price)}</span>
-      ),
+      cell: ({ row }) => {
+        const order = row.original
+        const isEditing = editingOrder?.symbol === order.symbol && 
+                         editingOrder?.orderIndex === order.order_index - 1 && 
+                         editingOrder?.field === 'price'
+        const canEdit = order.status.toLowerCase() !== 'filled'
+        
+        if (isEditing) {
+          return (
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                step="0.01"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                className="h-7 w-24 text-sm"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveEdit()
+                  if (e.key === 'Escape') handleCancelEdit()
+                }}
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                onClick={handleSaveEdit}
+              >
+                <Save className="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                onClick={handleCancelEdit}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          )
+        }
+        
+        return (
+          <div className="flex items-center gap-1 group">
+            <span className="font-medium">{formatCurrency(order.price)}</span>
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => handleStartEdit(order.symbol, order.order_index - 1, 'price', order.price)}
+              >
+                <Edit2 className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        )
+      },
     },
     {
       accessorKey: "status",
@@ -820,29 +1039,109 @@ export default function OrdersPage() {
     })
     return grouped
   }, [gttOrders])
-  
-  // Filter GTT orders by search query
-  const filteredGttBySymbol: Record<string, GTTOrder[]> = useMemo(() => {
+
+  // Create a mapping of symbols to asset_type from GTT orders
+  const symbolAssetTypeMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    gttOrders.forEach((order: GTTOrder) => {
+      if (order.asset_type) {
+        map[order.symbol] = order.asset_type
+      }
+    })
+    return map
+  }, [gttOrders])
+
+  // Separate active orders by asset type (infer from GTT orders)
+  const stocksActiveOrders = useMemo(() => {
+    return activeOrders.filter((order: ActiveOrder) => {
+      const assetType = symbolAssetTypeMap[order.symbol]
+      return assetType === 'stock' || !assetType // Default to stock if unknown
+    })
+  }, [activeOrders, symbolAssetTypeMap])
+
+  const cryptoActiveOrders = useMemo(() => {
+    return activeOrders.filter((order: ActiveOrder) => {
+      const assetType = symbolAssetTypeMap[order.symbol]
+      return assetType === 'crypto'
+    })
+  }, [activeOrders, symbolAssetTypeMap])
+
+  // Separate GTT orders by asset type
+  const stocksGttOrders = useMemo(() => {
+    return gttOrders.filter((order: GTTOrder) => order.asset_type === 'stock' || !order.asset_type)
+  }, [gttOrders])
+
+  const cryptoGttOrders = useMemo(() => {
+    return gttOrders.filter((order: GTTOrder) => order.asset_type === 'crypto')
+  }, [gttOrders])
+
+  // Group stocks GTT orders by symbol
+  const stocksGttBySymbol: Record<string, GTTOrder[]> = useMemo(() => {
+    const grouped: Record<string, GTTOrder[]> = {}
+    stocksGttOrders.forEach((order: GTTOrder) => {
+      if (!grouped[order.symbol]) {
+        grouped[order.symbol] = []
+      }
+      grouped[order.symbol].push(order)
+    })
+    return grouped
+  }, [stocksGttOrders])
+
+  // Group crypto GTT orders by symbol
+  const cryptoGttBySymbol: Record<string, GTTOrder[]> = useMemo(() => {
+    const grouped: Record<string, GTTOrder[]> = {}
+    cryptoGttOrders.forEach((order: GTTOrder) => {
+      if (!grouped[order.symbol]) {
+        grouped[order.symbol] = []
+      }
+      grouped[order.symbol].push(order)
+    })
+    return grouped
+  }, [cryptoGttOrders])
+
+  // Filter GTT orders by search query (for stocks)
+  const filteredStocksGttBySymbol: Record<string, GTTOrder[]> = useMemo(() => {
     if (!gttSearchQuery.trim()) {
-      return gttBySymbol
+      return stocksGttBySymbol
     }
     
     const query = gttSearchQuery.toLowerCase().trim()
     const filtered: Record<string, GTTOrder[]> = {}
     
-    Object.entries(gttBySymbol).forEach(([symbol, orders]) => {
-      const company = orders[0]?.company || ""
-      // Match by symbol or company name
-      if (
-        symbol.toLowerCase().includes(query) ||
-        company.toLowerCase().includes(query)
-      ) {
+    Object.entries(stocksGttBySymbol).forEach(([symbol, orders]) => {
+      const firstOrder = orders[0]
+      const matchesSymbol = symbol.toLowerCase().includes(query)
+      const matchesCompany = firstOrder?.company?.toLowerCase().includes(query)
+      
+      if (matchesSymbol || matchesCompany) {
         filtered[symbol] = orders
       }
     })
     
     return filtered
-  }, [gttBySymbol, gttSearchQuery])
+  }, [stocksGttBySymbol, gttSearchQuery])
+
+  // Filter GTT orders by search query (for crypto)
+  const filteredCryptoGttBySymbol: Record<string, GTTOrder[]> = useMemo(() => {
+    if (!gttSearchQuery.trim()) {
+      return cryptoGttBySymbol
+    }
+    
+    const query = gttSearchQuery.toLowerCase().trim()
+    const filtered: Record<string, GTTOrder[]> = {}
+    
+    Object.entries(cryptoGttBySymbol).forEach(([symbol, orders]) => {
+      const firstOrder = orders[0]
+      const matchesSymbol = symbol.toLowerCase().includes(query)
+      const matchesCompany = firstOrder?.company?.toLowerCase().includes(query)
+      
+      if (matchesSymbol || matchesCompany) {
+        filtered[symbol] = orders
+      }
+    })
+    
+    return filtered
+  }, [cryptoGttBySymbol, gttSearchQuery])
 
   // Column definitions for Active Orders
   const activeOrderColumns: ColumnDef<ActiveOrder>[] = [
@@ -1096,7 +1395,8 @@ export default function OrdersPage() {
     }
   }
 
-  const orderCategories = useMemo(() => categorizeOrders(activeOrders), [activeOrders])
+  const stocksOrderCategories = useMemo(() => categorizeOrders(stocksActiveOrders), [stocksActiveOrders])
+  const cryptoOrderCategories = useMemo(() => categorizeOrders(cryptoActiveOrders), [cryptoActiveOrders])
   
   // Show loading while checking auth
   if (isAuthenticated === null) {
@@ -1322,291 +1622,93 @@ export default function OrdersPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="orders" className="w-full">
-          <TabsList>
-            <TabsTrigger value="orders">Orders</TabsTrigger>
-            <TabsTrigger value="gtt">GTT</TabsTrigger>
+        <Tabs defaultValue="stocks-orders" className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="stocks-orders" className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" />
+              <span>Stock/ETF Orders</span>
+            </TabsTrigger>
+            <TabsTrigger value="stocks-gtt" className="flex items-center gap-2">
+              <Target className="h-4 w-4" />
+              <span>Stock/ETF GTT</span>
+            </TabsTrigger>
+            <TabsTrigger value="crypto-orders" className="flex items-center gap-2">
+              <Coins className="h-4 w-4" />
+              <span>Crypto Orders</span>
+            </TabsTrigger>
+            <TabsTrigger value="crypto-gtt" className="flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              <span>Crypto GTT</span>
+            </TabsTrigger>
           </TabsList>
 
-          {/* GTT Orders Tab */}
-          <TabsContent value="gtt" className="space-y-4">
-            {/* Search/Filter Bar */}
-            <div className="flex items-center justify-end gap-2">
-              <div className="relative w-64">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Search by symbol or name..."
-                  value={gttSearchQuery}
-                  onChange={(e) => setGttSearchQuery(e.target.value)}
-                  className="pl-8 h-8 text-sm"
-                />
-                {gttSearchQuery && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
-                    onClick={() => setGttSearchQuery("")}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                )}
-              </div>
-            </div>
-            
-            {/* Show loading screen if initial load AND no data exists yet */}
-            {isLoading && gttOrders.length === 0 ? (
-              <Card>
-                <CardContent className="py-12">
-                  <div className="flex flex-col items-center justify-center gap-4">
-                    <div className="relative">
-                      <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
-                    </div>
-                    <div className="text-center space-y-2">
-                      <p className="text-lg font-medium text-foreground">Loading orders...</p>
-                      {loadingStatus?.is_loading && loadingStatus.message && (
-                        <p className="text-sm text-muted-foreground animate-pulse">{loadingStatus.message}</p>
-                      )}
-                      {loadingStatus && loadingStatus.is_loading && loadingStatus.current_symbol && (
-                        <p className="text-xs text-primary font-medium">
-                          Processing: {loadingStatus.current_symbol}
-                        </p>
-                      )}
-                      {loadingStatus && loadingStatus.total > 0 && (
-                        <div className="flex items-center gap-2 justify-center mt-2">
-                          <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-primary transition-all duration-300"
-                              style={{ width: `${(loadingStatus.progress / loadingStatus.total) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {loadingStatus.progress}/{loadingStatus.total}
-                          </span>
-                        </div>
-                      )}
-                      {!isOnline && (
-                        <p className="text-sm text-destructive mt-2 flex items-center gap-2">
-                          <TriangleAlert className="h-4 w-4" />
-                          Server connection failed. Please check if the monitor is running.
-                        </p>
-                      )}
-                    </div>
+          {/* Upload Message - Show in all tabs */}
+          {uploadMessage && (
+            <div className="mt-4">
+              <Card className={uploadMessage.type === 'success' ? 'bg-green-500/10 border-green-500/50' : 'bg-red-500/10 border-red-500/50'}>
+                <CardContent className="py-2 px-4">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm ${uploadMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                      {uploadMessage.text}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => setUploadMessage(null)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
-            ) : Object.keys(filteredGttBySymbol).length === 0 ? (
-              <Card>
-                <CardContent className="py-8 text-center text-muted-foreground">
-                  {gttSearchQuery ? (
-                    <div>
-                      <p>No orders found matching "{gttSearchQuery}"</p>
-                      <Button
-                        variant="link"
-                        className="mt-2"
-                        onClick={() => setGttSearchQuery("")}
-                      >
-                        Clear search
-                      </Button>
-                    </div>
-                  ) : (
-                    <span>No GTT orders found. Load orders from CSV files.</span>
-                  )}
-                </CardContent>
-              </Card>
-            ) : (
-              <Accordion 
-                type="single" 
-                collapsible 
-                className="w-full space-y-4"
-                value={expandedAccordion || undefined}
-                onValueChange={(value) => setExpandedAccordion(value || null)}
-              >
-                {Object.entries(filteredGttBySymbol).map(([symbol, orders]) => {
-                  const currentPrice = prices[symbol]
-                  const isUnavailable = orders[0]?.is_available_on_alpaca === false
-                  
-                  // Count orders by status - use Alpaca official statuses
-                  const completedOrders = orders.filter(o => {
-                    const status = o.status.toLowerCase()
-                    return status === "filled"
-                  })
-                  const placedOrders = orders.filter(o => {
-                    const status = o.status.toLowerCase()
-                    // Orders that are placed (have order_id) but not filled
-                    return o.order_id && status !== "filled"
-                  })
-                  const pendingOrders = orders.filter(o => {
-                    const status = o.status.toLowerCase()
-                    // Orders that are truly pending (no order_id and status is pending)
-                    return !o.order_id && status === "pending"
-                  })
-                  
-                  // Calculate totals
-                  const totalOrders = orders.length
-                  const placedCount = placedOrders.length + completedOrders.length // Include filled orders in "placed"
-                  const remainingCount = pendingOrders.length
-                  
-                  const columns = createGTTColumns(currentPrice, refreshData)
-                  
-                  return (
-                    <AccordionItem key={symbol} value={symbol} className="border-none">
-                      <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
-                        <CardHeader className="p-1.5 sm:p-2">
-                          <AccordionTrigger className="hover:no-underline py-0 items-center">
-                            <div className="flex flex-col sm:flex-row items-center sm:items-center justify-between w-full pr-2 gap-1 sm:gap-1">
-                              {/* Left side: Name and description */}
-                              <div className="text-left flex-1 min-w-0">
-                                <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
-                                  {symbol}
-                                  {isUnavailable && (
-                                    <span className="ml-1.5 text-xs font-normal text-red-500/70">(Not available)</span>
-                                  )}
-                                </CardTitle>
-                                <CardDescription className={`mt-0 text-xs ${isUnavailable ? 'text-red-400' : ''}`}>
-                                  {orders[0]?.company}
-                                </CardDescription>
-                              </div>
-                              
-                              {/* Right side: Four cards in a responsive grid */}
-                              <div className="flex flex-col sm:flex-row gap-1 ml-0.5 sm:ml-1 flex-shrink-0">
-                                {/* Top row: Current Price and Next Limit */}
-                                <div className="flex flex-wrap items-center gap-1 overflow-visible">
-                                  {currentPrice && (
-                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1 overflow-visible relative">
-                                      <span>Current: {formatCurrency(currentPrice)}</span>
-                                      <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
-                                    </Badge>
-                                  )}
-                                  {(() => {
-                                    const currentOrder = orders.find(o => o.is_current)
-                                    if (currentOrder) {
-                                      return (
-                                        <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0">
-                                          Next Limit: {formatCurrency(currentOrder.price)}
-                                        </Badge>
-                                      )
-                                    }
-                                    return null
-                                  })()}
-                                </div>
-                                
-                                {/* Bottom row: Placed count and Remaining count */}
-                                <div className="flex flex-wrap items-center gap-1">
-                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
-                                    {placedCount} of {totalOrders} placed
-                                  </Badge>
-                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-muted/50 text-muted-foreground">
-                                    {remainingCount} remaining
-                                  </Badge>
-                                </div>
-                              </div>
-                            </div>
-                          </AccordionTrigger>
-                        </CardHeader>
-                        <AccordionContent>
-                          <CardContent className="p-1.5 sm:p-2 space-y-4">
-                            <DataTable
-                              columns={columns}
-                              data={orders}
-                            />
-                            {/* Stock Chart - Only fetch when accordion is expanded (lazy loading) */}
-                            <div className="pt-2 border-t">
-                              <StockChart 
-                                symbol={symbol} 
-                                apiBaseUrl={apiBaseUrl} 
-                                height={200}
-                                enabled={expandedAccordion === symbol}
-                              />
-                            </div>
-                          </CardContent>
-                        </AccordionContent>
-                      </Card>
-                    </AccordionItem>
-                  )
-                })}
-              </Accordion>
-            )}
-          </TabsContent>
+            </div>
+          )}
 
-          {/* Orders Tab */}
-          <TabsContent value="orders" className="space-y-4">
+          {/* Stock/ETF Orders Tab */}
+          <TabsContent value="stocks-orders" className="space-y-4 mt-4">
             {/* Active Orders Section */}
             <Card className="gap-0 py-1">
               <CardHeader className="p-1.5 sm:p-2">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   Active
-                  {orderCategories.active.length > 0 && (
+                  {stocksOrderCategories.active.length > 0 && (
                     <Badge variant="secondary" className="ml-2">
-                      {orderCategories.active.length}
+                      {stocksOrderCategories.active.length}
                     </Badge>
                   )}
                 </CardTitle>
                 <CardDescription className="text-xs">Orders currently placed and live (buying power locked)</CardDescription>
               </CardHeader>
               <CardContent className="p-1.5 sm:p-2">
-                {/* Show loading screen if:
-                    1. Initial load AND no data exists yet, OR
-                    2. Backend is still loading (from /api/status) - show even if we have some orders */}
                 {isLoading ? (
                   <div className="py-8 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
-                      <div className="space-y-1">
-                        <p className="text-sm text-muted-foreground">
-                          {loadingStatus?.message || "Loading orders..."}
-                        </p>
-                        {loadingStatus && loadingStatus.is_loading && (
-                          <div className="space-y-1">
-                            {loadingStatus.current_symbol && (
-                              <p className="text-xs text-primary font-medium">
-                                Processing: {loadingStatus.current_symbol}
-                              </p>
-                            )}
-                            {loadingStatus.total > 0 && loadingStatus.progress > 0 && (
-                              <div className="flex items-center gap-2 justify-center">
-                                <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary transition-all duration-300"
-                                    style={{ width: `${Math.min(100, (loadingStatus.progress / loadingStatus.total) * 100)}%` }}
-                                  />
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  {loadingStatus.progress}/{loadingStatus.total}
-                                </span>
-                              </div>
-                            )}
-                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && loadingStatus.loaded_symbols.length <= 10 && (
-                              <p className="text-xs text-muted-foreground">
-                                Loaded: {loadingStatus.loaded_symbols.slice(-5).join(", ")}
-                                {loadingStatus.loaded_symbols.length > 5 && ` ... (+${loadingStatus.loaded_symbols.length - 5} more)`}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {loadingStatus?.message || "Loading orders..."}
+                      </p>
                     </div>
                   </div>
-                ) : orderCategories.active.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground">No active orders</div>
+                ) : stocksOrderCategories.active.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">No active stock/ETF orders</div>
                 ) : (
                   <DataTable
                     columns={activeOrderColumns}
-                    data={orderCategories.active}
+                    data={stocksOrderCategories.active}
                     getRowCanExpand={(row) => {
                       const symbol = row.original.symbol
-                      return (gttBySymbol[symbol] || []).length > 0
+                      return (stocksGttBySymbol[symbol] || []).length > 0
                     }}
                     renderSubComponent={(row) => {
                       const symbol = row.original.symbol
-                      const orderId = row.original.id // The Alpaca order ID
-                      const symbolGTTOrders = gttBySymbol[symbol] || []
+                      const orderId = row.original.id
+                      const symbolGTTOrders = stocksGttBySymbol[symbol] || []
                       
                       if (symbolGTTOrders.length === 0) {
                         return null
                       }
                       
-                      // Find the matching GTT order by order_id
                       const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
                       
                       return (
@@ -1628,9 +1730,7 @@ export default function OrdersPage() {
                               </TableHeader>
                               <TableBody>
                                 {symbolGTTOrders.map((gttOrder) => {
-                                  // Highlight if this GTT order matches the clicked order
                                   const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
-                                  
                                   return (
                                     <TableRow 
                                       key={`${gttOrder.symbol}-${gttOrder.order_index}`}
@@ -1671,77 +1771,43 @@ export default function OrdersPage() {
               <CardHeader className="p-1.5 sm:p-2">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   Completed
-                  {orderCategories.completed.length > 0 && (
+                  {stocksOrderCategories.completed.length > 0 && (
                     <Badge variant="default" className="ml-2">
-                      {orderCategories.completed.length}
+                      {stocksOrderCategories.completed.length}
                     </Badge>
                   )}
                 </CardTitle>
                 <CardDescription className="text-xs">Orders that have been filled (executed)</CardDescription>
               </CardHeader>
               <CardContent className="p-1.5 sm:p-2">
-                {/* Show loading screen if:
-                    1. Initial load AND no data exists yet, OR
-                    2. Backend is still loading (from /api/status) - show even if we have some orders */}
                 {isLoading ? (
                   <div className="py-8 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
-                      <div className="space-y-1">
-                        <p className="text-sm text-muted-foreground">
-                          {loadingStatus?.message || "Loading orders..."}
-                        </p>
-                        {loadingStatus && loadingStatus.is_loading && (
-                          <div className="space-y-1">
-                            {loadingStatus.current_symbol && (
-                              <p className="text-xs text-primary font-medium">
-                                Processing: {loadingStatus.current_symbol}
-                              </p>
-                            )}
-                            {loadingStatus.total > 0 && loadingStatus.progress > 0 && (
-                              <div className="flex items-center gap-2 justify-center">
-                                <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary transition-all duration-300"
-                                    style={{ width: `${Math.min(100, (loadingStatus.progress / loadingStatus.total) * 100)}%` }}
-                                  />
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  {loadingStatus.progress}/{loadingStatus.total}
-                                </span>
-                              </div>
-                            )}
-                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && loadingStatus.loaded_symbols.length <= 10 && (
-                              <p className="text-xs text-muted-foreground">
-                                Loaded: {loadingStatus.loaded_symbols.slice(-5).join(", ")}
-                                {loadingStatus.loaded_symbols.length > 5 && ` ... (+${loadingStatus.loaded_symbols.length - 5} more)`}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {loadingStatus?.message || "Loading orders..."}
+                      </p>
                     </div>
                   </div>
-                ) : orderCategories.completed.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground">No completed orders</div>
+                ) : stocksOrderCategories.completed.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">No completed stock/ETF orders</div>
                 ) : (
                   <DataTable
                     columns={activeOrderColumns}
-                    data={orderCategories.completed}
+                    data={stocksOrderCategories.completed}
                     getRowCanExpand={(row) => {
                       const symbol = row.original.symbol
-                      return (gttBySymbol[symbol] || []).length > 0
+                      return (stocksGttBySymbol[symbol] || []).length > 0
                     }}
                     renderSubComponent={(row) => {
                       const symbol = row.original.symbol
-                      const orderId = row.original.id // The Alpaca order ID
-                      const symbolGTTOrders = gttBySymbol[symbol] || []
+                      const orderId = row.original.id
+                      const symbolGTTOrders = stocksGttBySymbol[symbol] || []
                       
                       if (symbolGTTOrders.length === 0) {
                         return null
                       }
                       
-                      // Find the matching GTT order by order_id
                       const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
                       
                       return (
@@ -1763,9 +1829,7 @@ export default function OrdersPage() {
                               </TableHeader>
                               <TableBody>
                                 {symbolGTTOrders.map((gttOrder) => {
-                                  // Highlight if this GTT order matches the clicked order
                                   const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
-                                  
                                   return (
                                     <TableRow 
                                       key={`${gttOrder.symbol}-${gttOrder.order_index}`}
@@ -1806,77 +1870,43 @@ export default function OrdersPage() {
               <CardHeader className="p-1.5 sm:p-2">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   Cancelled
-                  {orderCategories.cancelled.length > 0 && (
-                    <Badge variant="destructive" className="ml-2">
-                      {orderCategories.cancelled.length}
+                  {stocksOrderCategories.cancelled.length > 0 && (
+                    <Badge variant="outline" className="ml-2">
+                      {stocksOrderCategories.cancelled.length}
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription className="text-xs">Orders that were cancelled or expired</CardDescription>
+                <CardDescription className="text-xs">Orders that were cancelled, expired, or rejected</CardDescription>
               </CardHeader>
               <CardContent className="p-1.5 sm:p-2">
-                {/* Show loading screen if:
-                    1. Initial load AND no data exists yet, OR
-                    2. Backend is still loading (from /api/status) - show even if we have some orders */}
                 {isLoading ? (
                   <div className="py-8 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
-                      <div className="space-y-1">
-                        <p className="text-sm text-muted-foreground">
-                          {loadingStatus?.message || "Loading orders..."}
-                        </p>
-                        {loadingStatus && loadingStatus.is_loading && (
-                          <div className="space-y-1">
-                            {loadingStatus.current_symbol && (
-                              <p className="text-xs text-primary font-medium">
-                                Processing: {loadingStatus.current_symbol}
-                              </p>
-                            )}
-                            {loadingStatus.total > 0 && loadingStatus.progress > 0 && (
-                              <div className="flex items-center gap-2 justify-center">
-                                <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary transition-all duration-300"
-                                    style={{ width: `${Math.min(100, (loadingStatus.progress / loadingStatus.total) * 100)}%` }}
-                                  />
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  {loadingStatus.progress}/{loadingStatus.total}
-                                </span>
-                              </div>
-                            )}
-                            {loadingStatus.loaded_symbols && loadingStatus.loaded_symbols.length > 0 && loadingStatus.loaded_symbols.length <= 10 && (
-                              <p className="text-xs text-muted-foreground">
-                                Loaded: {loadingStatus.loaded_symbols.slice(-5).join(", ")}
-                                {loadingStatus.loaded_symbols.length > 5 && ` ... (+${loadingStatus.loaded_symbols.length - 5} more)`}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {loadingStatus?.message || "Loading orders..."}
+                      </p>
                     </div>
                   </div>
-                ) : orderCategories.cancelled.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground">No cancelled orders</div>
+                ) : stocksOrderCategories.cancelled.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">No cancelled stock/ETF orders</div>
                 ) : (
                   <DataTable
                     columns={activeOrderColumns}
-                    data={orderCategories.cancelled}
+                    data={stocksOrderCategories.cancelled}
                     getRowCanExpand={(row) => {
                       const symbol = row.original.symbol
-                      return (gttBySymbol[symbol] || []).length > 0
+                      return (stocksGttBySymbol[symbol] || []).length > 0
                     }}
                     renderSubComponent={(row) => {
                       const symbol = row.original.symbol
-                      const orderId = row.original.id // The Alpaca order ID
-                      const symbolGTTOrders = gttBySymbol[symbol] || []
+                      const orderId = row.original.id
+                      const symbolGTTOrders = stocksGttBySymbol[symbol] || []
                       
                       if (symbolGTTOrders.length === 0) {
                         return null
                       }
                       
-                      // Find the matching GTT order by order_id
                       const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
                       
                       return (
@@ -1898,9 +1928,7 @@ export default function OrdersPage() {
                               </TableHeader>
                               <TableBody>
                                 {symbolGTTOrders.map((gttOrder) => {
-                                  // Highlight if this GTT order matches the clicked order
                                   const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
-                                  
                                   return (
                                     <TableRow 
                                       key={`${gttOrder.symbol}-${gttOrder.order_index}`}
@@ -1935,6 +1963,686 @@ export default function OrdersPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Stock/ETF GTT Tab */}
+          <TabsContent value="stocks-gtt" className="space-y-4 mt-4">
+            {/* CSV Upload Button */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".csv"
+                  id="stocks-csv-upload"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleCsvUpload(file, 'stocks')
+                    e.target.value = ''
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => document.getElementById('stocks-csv-upload')?.click()}
+                  disabled={uploadingStocks}
+                >
+                  {uploadingStocks ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Stocks CSV
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* Search/Filter Bar */}
+            <div className="flex items-center justify-end gap-2">
+              <div className="relative w-64">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search by symbol or name..."
+                  value={gttSearchQuery}
+                  onChange={(e) => setGttSearchQuery(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+                {gttSearchQuery && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+                    onClick={() => setGttSearchQuery("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {isLoading && stocksGttOrders.length === 0 ? (
+              <Card>
+                <CardContent className="py-12">
+                  <div className="flex flex-col items-center justify-center gap-4">
+                    <div className="relative">
+                      <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                    </div>
+                    <div className="text-center space-y-2">
+                      <p className="text-lg font-medium text-foreground">Loading stocks GTT orders...</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : Object.keys(filteredStocksGttBySymbol).length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  {gttSearchQuery ? (
+                    <div>
+                      <p>No stocks found matching "{gttSearchQuery}"</p>
+                      <Button
+                        variant="link"
+                        className="mt-2"
+                        onClick={() => setGttSearchQuery("")}
+                      >
+                        Clear search
+                      </Button>
+                    </div>
+                  ) : (
+                    <span>No stocks GTT orders found.</span>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <Accordion 
+                type="single" 
+                collapsible 
+                className="w-full space-y-4"
+                value={expandedAccordion || undefined}
+                onValueChange={(value) => setExpandedAccordion(value || null)}
+              >
+                {Object.entries(filteredStocksGttBySymbol).map(([symbol, orders]) => {
+                  const currentPrice = prices[symbol]
+                  const isUnavailable = orders[0]?.is_available_on_alpaca === false
+                  
+                  const completedOrders = orders.filter(o => o.status.toLowerCase() === "filled")
+                  const placedOrders = orders.filter(o => o.order_id && o.status.toLowerCase() !== "filled")
+                  const pendingOrders = orders.filter(o => !o.order_id && o.status.toLowerCase() === "pending")
+                  
+                  const totalOrders = orders.length
+                  const placedCount = placedOrders.length + completedOrders.length
+                  const remainingCount = pendingOrders.length
+                  
+                  const columns = createGTTColumns(currentPrice, refreshData)
+                  
+                  return (
+                    <AccordionItem key={symbol} value={symbol} className="border-none">
+                      <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
+                        <CardHeader className="p-1.5 sm:p-2">
+                          <AccordionTrigger className="hover:no-underline py-0 items-center">
+                            <div className="flex flex-col sm:flex-row items-center sm:items-center justify-between w-full pr-2 gap-1 sm:gap-1">
+                              <div className="text-left flex-1 min-w-0">
+                                <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
+                                  {symbol}
+                                  {isUnavailable && (
+                                    <span className="ml-1.5 text-xs font-normal text-red-500/70">(Not available)</span>
+                                  )}
+                                </CardTitle>
+                                <CardDescription className={`mt-0 text-xs ${isUnavailable ? 'text-red-400' : ''}`}>
+                                  {orders[0]?.company}
+                                </CardDescription>
+                              </div>
+                              
+                              <div className="flex flex-col sm:flex-row gap-1 ml-0.5 sm:ml-1 flex-shrink-0">
+                                <div className="flex flex-wrap items-center gap-1 overflow-visible">
+                                  {currentPrice && (
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1 overflow-visible relative">
+                                      <span>Current: {formatCurrency(currentPrice)}</span>
+                                      <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
+                                    </Badge>
+                                  )}
+                                  {(() => {
+                                    const currentOrder = orders.find(o => o.is_current)
+                                    if (currentOrder) {
+                                      return (
+                                        <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0">
+                                          Next Limit: {formatCurrency(currentOrder.price)}
+                                        </Badge>
+                                      )
+                                    }
+                                    return null
+                                  })()}
+                                </div>
+                                
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
+                                    {placedCount} of {totalOrders} placed
+                                  </Badge>
+                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-muted/50 text-muted-foreground">
+                                    {remainingCount} remaining
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          </AccordionTrigger>
+                        </CardHeader>
+                        <AccordionContent>
+                          <CardContent className="p-1.5 sm:p-2 space-y-4">
+                            <DataTable
+                              columns={columns}
+                              data={orders}
+                            />
+                            <div className="pt-2 border-t">
+                              <StockChart 
+                                symbol={symbol} 
+                                apiBaseUrl={apiBaseUrl} 
+                                height={200}
+                                enabled={expandedAccordion === symbol}
+                              />
+                            </div>
+                          </CardContent>
+                        </AccordionContent>
+                      </Card>
+                    </AccordionItem>
+                  )
+                })}
+              </Accordion>
+            )}
+          </TabsContent>
+
+          {/* Crypto Orders Tab */}
+          <TabsContent value="crypto-orders" className="space-y-4 mt-4">
+            {/* Active Orders Section */}
+            <Card className="gap-0 py-1">
+              <CardHeader className="p-1.5 sm:p-2">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  Active
+                  {cryptoOrderCategories.active.length > 0 && (
+                    <Badge variant="secondary" className="ml-2">
+                      {cryptoOrderCategories.active.length}
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription className="text-xs">Orders currently placed and live (buying power locked)</CardDescription>
+              </CardHeader>
+              <CardContent className="p-1.5 sm:p-2">
+                {isLoading ? (
+                  <div className="py-8 text-center">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                      <p className="text-sm text-muted-foreground">
+                        {loadingStatus?.message || "Loading orders..."}
+                      </p>
+                    </div>
+                  </div>
+                ) : cryptoOrderCategories.active.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">No active crypto orders</div>
+                ) : (
+                  <DataTable
+                    columns={activeOrderColumns}
+                    data={cryptoOrderCategories.active}
+                    getRowCanExpand={(row) => {
+                      const symbol = row.original.symbol
+                      return (cryptoGttBySymbol[symbol] || []).length > 0
+                    }}
+                    renderSubComponent={(row) => {
+                      const symbol = row.original.symbol
+                      const orderId = row.original.id
+                      const symbolGTTOrders = cryptoGttBySymbol[symbol] || []
+                      
+                      if (symbolGTTOrders.length === 0) {
+                        return null
+                      }
+                      
+                      const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
+                      
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 mb-3">
+                            <h4 className="text-sm font-semibold">GTT Orders for {symbol}</h4>
+                            <Badge variant="secondary">{symbolGTTOrders.length}</Badge>
+                          </div>
+                          <div className="overflow-x-auto -mx-4 px-4">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-16">Order</TableHead>
+                                  <TableHead>Amount</TableHead>
+                                  <TableHead>Price</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead>Order ID</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {symbolGTTOrders.map((gttOrder) => {
+                                  const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
+                                  return (
+                                    <TableRow 
+                                      key={`${gttOrder.symbol}-${gttOrder.order_index}`}
+                                      className={isMatchingOrder ? "bg-primary/20 hover:bg-primary/25" : ""}
+                                    >
+                                      <TableCell className="font-medium">
+                                        #{gttOrder.order_index}
+                                        {gttOrder.is_current && (
+                                          <Badge variant="outline" className="ml-2 text-xs">
+                                            Current
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>{gttOrder.amount}</TableCell>
+                                      <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
+                                      <TableCell>
+                                        {getStatusBadge(gttOrder.status, gttOrder.is_current)}
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs text-muted-foreground">
+                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  )
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Completed Orders Section */}
+            <Card className="gap-0 py-1">
+              <CardHeader className="p-1.5 sm:p-2">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  Completed
+                  {cryptoOrderCategories.completed.length > 0 && (
+                    <Badge variant="default" className="ml-2">
+                      {cryptoOrderCategories.completed.length}
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription className="text-xs">Orders that have been filled (executed)</CardDescription>
+              </CardHeader>
+              <CardContent className="p-1.5 sm:p-2">
+                {isLoading ? (
+                  <div className="py-8 text-center">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                      <p className="text-sm text-muted-foreground">
+                        {loadingStatus?.message || "Loading orders..."}
+                      </p>
+                    </div>
+                  </div>
+                ) : cryptoOrderCategories.completed.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">No completed crypto orders</div>
+                ) : (
+                  <DataTable
+                    columns={activeOrderColumns}
+                    data={cryptoOrderCategories.completed}
+                    getRowCanExpand={(row) => {
+                      const symbol = row.original.symbol
+                      return (cryptoGttBySymbol[symbol] || []).length > 0
+                    }}
+                    renderSubComponent={(row) => {
+                      const symbol = row.original.symbol
+                      const orderId = row.original.id
+                      const symbolGTTOrders = cryptoGttBySymbol[symbol] || []
+                      
+                      if (symbolGTTOrders.length === 0) {
+                        return null
+                      }
+                      
+                      const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
+                      
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 mb-3">
+                            <h4 className="text-sm font-semibold">GTT Orders for {symbol}</h4>
+                            <Badge variant="secondary">{symbolGTTOrders.length}</Badge>
+                          </div>
+                          <div className="overflow-x-auto -mx-4 px-4">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-16">Order</TableHead>
+                                  <TableHead>Amount</TableHead>
+                                  <TableHead>Price</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead>Order ID</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {symbolGTTOrders.map((gttOrder) => {
+                                  const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
+                                  return (
+                                    <TableRow 
+                                      key={`${gttOrder.symbol}-${gttOrder.order_index}`}
+                                      className={isMatchingOrder ? "bg-primary/20 hover:bg-primary/25" : ""}
+                                    >
+                                      <TableCell className="font-medium">
+                                        #{gttOrder.order_index}
+                                        {gttOrder.is_current && (
+                                          <Badge variant="outline" className="ml-2 text-xs">
+                                            Current
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>{gttOrder.amount}</TableCell>
+                                      <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
+                                      <TableCell>
+                                        {getStatusBadge(gttOrder.status, gttOrder.is_current)}
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs text-muted-foreground">
+                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  )
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Cancelled Orders Section */}
+            <Card className="gap-0 py-1">
+              <CardHeader className="p-1.5 sm:p-2">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  Cancelled
+                  {cryptoOrderCategories.cancelled.length > 0 && (
+                    <Badge variant="outline" className="ml-2">
+                      {cryptoOrderCategories.cancelled.length}
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription className="text-xs">Orders that were cancelled, expired, or rejected</CardDescription>
+              </CardHeader>
+              <CardContent className="p-1.5 sm:p-2">
+                {isLoading ? (
+                  <div className="py-8 text-center">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                      <p className="text-sm text-muted-foreground">
+                        {loadingStatus?.message || "Loading orders..."}
+                      </p>
+                    </div>
+                  </div>
+                ) : cryptoOrderCategories.cancelled.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">No cancelled crypto orders</div>
+                ) : (
+                  <DataTable
+                    columns={activeOrderColumns}
+                    data={cryptoOrderCategories.cancelled}
+                    getRowCanExpand={(row) => {
+                      const symbol = row.original.symbol
+                      return (cryptoGttBySymbol[symbol] || []).length > 0
+                    }}
+                    renderSubComponent={(row) => {
+                      const symbol = row.original.symbol
+                      const orderId = row.original.id
+                      const symbolGTTOrders = cryptoGttBySymbol[symbol] || []
+                      
+                      if (symbolGTTOrders.length === 0) {
+                        return null
+                      }
+                      
+                      const matchingGTTOrder = symbolGTTOrders.find(gtt => gtt.order_id === orderId)
+                      
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 mb-3">
+                            <h4 className="text-sm font-semibold">GTT Orders for {symbol}</h4>
+                            <Badge variant="secondary">{symbolGTTOrders.length}</Badge>
+                          </div>
+                          <div className="overflow-x-auto -mx-4 px-4">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-16">Order</TableHead>
+                                  <TableHead>Amount</TableHead>
+                                  <TableHead>Price</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead>Order ID</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {symbolGTTOrders.map((gttOrder) => {
+                                  const isMatchingOrder = matchingGTTOrder && gttOrder.order_id === matchingGTTOrder.order_id
+                                  return (
+                                    <TableRow 
+                                      key={`${gttOrder.symbol}-${gttOrder.order_index}`}
+                                      className={isMatchingOrder ? "bg-primary/20 hover:bg-primary/25" : ""}
+                                    >
+                                      <TableCell className="font-medium">
+                                        #{gttOrder.order_index}
+                                        {gttOrder.is_current && (
+                                          <Badge variant="outline" className="ml-2 text-xs">
+                                            Current
+                                          </Badge>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>{gttOrder.amount}</TableCell>
+                                      <TableCell>{formatCurrency(gttOrder.price)}</TableCell>
+                                      <TableCell>
+                                        {getStatusBadge(gttOrder.status, gttOrder.is_current)}
+                                      </TableCell>
+                                      <TableCell className="font-mono text-xs text-muted-foreground">
+                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  )
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Crypto GTT Tab */}
+          <TabsContent value="crypto-gtt" className="space-y-4 mt-4">
+            {/* CSV Upload Button */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".csv"
+                  id="crypto-csv-upload"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleCsvUpload(file, 'crypto')
+                    e.target.value = ''
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => document.getElementById('crypto-csv-upload')?.click()}
+                  disabled={uploadingCrypto}
+                >
+                  {uploadingCrypto ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Crypto CSV
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* Search/Filter Bar */}
+            <div className="flex items-center justify-end gap-2">
+              <div className="relative w-64">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search by symbol or name..."
+                  value={gttSearchQuery}
+                  onChange={(e) => setGttSearchQuery(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+                {gttSearchQuery && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+                    onClick={() => setGttSearchQuery("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {isLoading && cryptoGttOrders.length === 0 ? (
+              <Card>
+                <CardContent className="py-12">
+                  <div className="flex flex-col items-center justify-center gap-4">
+                    <div className="relative">
+                      <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                    </div>
+                    <div className="text-center space-y-2">
+                      <p className="text-lg font-medium text-foreground">Loading crypto GTT orders...</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : Object.keys(filteredCryptoGttBySymbol).length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  {gttSearchQuery ? (
+                    <div>
+                      <p>No crypto found matching "{gttSearchQuery}"</p>
+                      <Button
+                        variant="link"
+                        className="mt-2"
+                        onClick={() => setGttSearchQuery("")}
+                      >
+                        Clear search
+                      </Button>
+                    </div>
+                  ) : (
+                    <span>No crypto GTT orders found.</span>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <Accordion 
+                type="single" 
+                collapsible 
+                className="w-full space-y-4"
+                value={expandedAccordion || undefined}
+                onValueChange={(value) => setExpandedAccordion(value || null)}
+              >
+                {Object.entries(filteredCryptoGttBySymbol).map(([symbol, orders]) => {
+                  const currentPrice = prices[symbol]
+                  const isUnavailable = orders[0]?.is_available_on_alpaca === false
+                  
+                  const completedOrders = orders.filter(o => o.status.toLowerCase() === "filled")
+                  const placedOrders = orders.filter(o => o.order_id && o.status.toLowerCase() !== "filled")
+                  const pendingOrders = orders.filter(o => !o.order_id && o.status.toLowerCase() === "pending")
+                  
+                  const totalOrders = orders.length
+                  const placedCount = placedOrders.length + completedOrders.length
+                  const remainingCount = pendingOrders.length
+                  
+                  const columns = createGTTColumns(currentPrice, refreshData)
+                  
+                  return (
+                    <AccordionItem key={symbol} value={symbol} className="border-none">
+                      <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
+                        <CardHeader className="p-1.5 sm:p-2">
+                          <AccordionTrigger className="hover:no-underline py-0 items-center">
+                            <div className="flex flex-col sm:flex-row items-center sm:items-center justify-between w-full pr-2 gap-1 sm:gap-1">
+                              <div className="text-left flex-1 min-w-0">
+                                <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
+                                  {symbol}
+                                  {isUnavailable && (
+                                    <span className="ml-1.5 text-xs font-normal text-red-500/70">(Not available)</span>
+                                  )}
+                                </CardTitle>
+                                <CardDescription className={`mt-0 text-xs ${isUnavailable ? 'text-red-400' : ''}`}>
+                                  {orders[0]?.company}
+                                </CardDescription>
+                              </div>
+                              
+                              <div className="flex flex-col sm:flex-row gap-1 ml-0.5 sm:ml-1 flex-shrink-0">
+                                <div className="flex flex-wrap items-center gap-1 overflow-visible">
+                                  {currentPrice && (
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1 overflow-visible relative">
+                                      <span>Current: {formatCurrency(currentPrice)}</span>
+                                      <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
+                                    </Badge>
+                                  )}
+                                  {(() => {
+                                    const currentOrder = orders.find(o => o.is_current)
+                                    if (currentOrder) {
+                                      return (
+                                        <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0">
+                                          Next Limit: {formatCurrency(currentOrder.price)}
+                                        </Badge>
+                                      )
+                                    }
+                                    return null
+                                  })()}
+                                </div>
+                                
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
+                                    {placedCount} of {totalOrders} placed
+                                  </Badge>
+                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-muted/50 text-muted-foreground">
+                                    {remainingCount} remaining
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          </AccordionTrigger>
+                        </CardHeader>
+                        <AccordionContent>
+                          <CardContent className="p-1.5 sm:p-2 space-y-4">
+                            <DataTable
+                              columns={columns}
+                              data={orders}
+                            />
+                            <div className="pt-2 border-t">
+                              <StockChart 
+                                symbol={symbol} 
+                                apiBaseUrl={apiBaseUrl} 
+                                height={200}
+                                enabled={expandedAccordion === symbol}
+                              />
+                            </div>
+                          </CardContent>
+                        </AccordionContent>
+                      </Card>
+                    </AccordionItem>
+                  )
+                })}
+              </Accordion>
+            )}
           </TabsContent>
         </Tabs>
       </div>

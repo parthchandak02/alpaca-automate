@@ -429,6 +429,7 @@ def get_orders():
                     "current_order_index": ladder.current_order_index,
                     "is_current": idx == ladder.current_order_index,
                     "is_available_on_alpaca": ladder.is_available_on_alpaca,
+                    "asset_type": ladder.asset_type,  # 'stock' or 'crypto'
                 })
         
         # Clear loading status when done - use clear_loading_status to fully reset
@@ -546,6 +547,10 @@ def force_fill_order():
                 target_order.order_id = placed_order.id
                 target_order.status = "placed"
                 
+                # Update database
+                manager.db.update_order_status(symbol, order_index, "placed", placed_order.id)
+                manager._invalidate_ladders_cache()
+                
                 logger.info(f"FORCE-PLACED: {symbol} Order {order_index + 1} - "
                           f"Limit: ${target_order.price:.2f}, Order ID: {placed_order.id}")
             except Exception as e:
@@ -561,6 +566,23 @@ def force_fill_order():
         
         # Simulate fill: mark as filled
         target_order.status = "filled"
+        
+        # Update database
+        from datetime import datetime
+        filled_at = datetime.utcnow().isoformat()
+        manager.db.update_order_status(symbol, order_index, "filled", target_order.order_id, filled_at)
+        
+        # Link completed order
+        try:
+            db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+            if order_index < len(db_orders):
+                gtt_order_id = db_orders[order_index].id
+                manager.db.link_completed_order(gtt_order_id, target_order.order_id, symbol, filled_at=filled_at)
+        except Exception as e:
+            logger.debug(f"Could not link completed order: {e}")
+        
+        manager._invalidate_ladders_cache()
+        
         logger.info(f"FORCE-FILLED: {symbol} Order {order_index + 1} marked as filled")
         
         # Update current_order_index to point to the first unfilled order
@@ -581,6 +603,10 @@ def force_fill_order():
             else:
                 # Found first unfilled/unplaced order - this is now the current order
                 break
+        
+        # Update database with new current_order_index
+        manager.db.update_current_order_index(symbol, ladder.current_order_index)
+        manager._invalidate_ladders_cache()
         
         # Only auto-place the next order if we force-filled the CURRENT order (sequential behavior)
         # If we force-filled a future order, don't auto-place anything
@@ -607,6 +633,10 @@ def force_fill_order():
                         placed_order = manager.trading_client.submit_order(order_data=order_request)
                         next_order.order_id = placed_order.id
                         next_order.status = "placed"
+                        
+                        # Update database
+                        manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
+                        manager._invalidate_ladders_cache()
                         
                         logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
                                   f"Limit: ${next_order.price:.2f}, Order ID: {placed_order.id}")
@@ -681,6 +711,10 @@ def simulate_fill():
                 current_order.order_id = placed_order.id
                 current_order.status = "placed"
                 
+                # Update database
+                manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
+                manager._invalidate_ladders_cache()
+                
                 logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
                           f"Limit: ${current_order.price:.2f}, Order ID: {placed_order.id}")
             except Exception as e:
@@ -702,10 +736,30 @@ def simulate_fill():
         
         # Simulate fill: mark as filled
         current_order.status = "filled"
+        
+        # Update database
+        from datetime import datetime
+        filled_at = datetime.utcnow().isoformat()
+        old_index = ladder.current_order_index
+        manager.db.update_order_status(symbol, old_index, "filled", current_order.order_id, filled_at)
+        
+        # Link completed order
+        try:
+            db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+            if old_index < len(db_orders):
+                gtt_order_id = db_orders[old_index].id
+                manager.db.link_completed_order(gtt_order_id, current_order.order_id, symbol, filled_at=filled_at)
+        except Exception as e:
+            logger.debug(f"Could not link completed order: {e}")
+        
         logger.info(f"SIMULATED FILL: {symbol} Order {ladder.current_order_index + 1} marked as filled")
         
         # Advance to next order
         ladder.advance_to_next_order()
+        
+        # Update database with new current_order_index
+        manager.db.update_current_order_index(symbol, ladder.current_order_index)
+        manager._invalidate_ladders_cache()
         
         # Immediately place the next order (auto-place logic)
         next_order = ladder.get_current_order()
@@ -743,8 +797,12 @@ def simulate_fill():
                 placed_order = manager.trading_client.submit_order(order_data=order_request)
                 next_order.order_id = placed_order.id
                 next_order.status = "placed"
-                next_order_placed = True
                 
+                # Update database
+                manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
+                manager._invalidate_ladders_cache()
+                
+                next_order_placed = True
                 logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
                           f"Limit: ${next_order.price:.2f}, Order ID: {placed_order.id}")
             except Exception as e:
@@ -798,13 +856,19 @@ def cancel_all_orders():
         # Also reset all GTT order statuses to pending and clear ladders
         reset_count = 0
         for symbol, ladder in manager.ladders.items():
-            for order in ladder.orders:
+            for idx, order in enumerate(ladder.orders):
                 if order.status != "pending":
                     order.status = "pending"
                     order.order_id = None
+                    # Update database
+                    manager.db.update_order_status(symbol, idx, "pending", None)
                     reset_count += 1
             # Reset to first order
             ladder.current_order_index = 0
+            manager.db.update_current_order_index(symbol, 0)
+        
+        # Invalidate cache
+        manager._invalidate_ladders_cache()
         
         # Clear all ladders (remove GTT orders from memory)
         cleared_symbols = list(manager.ladders.keys())
@@ -1026,19 +1090,19 @@ def reinstate_gtt_order():
         target_order.status = "pending"
         target_order.order_id = None  # Clear so we can place a new order with new ID
         
-        # Log if we're resetting an order that had an Alpaca order_id
-        if old_order_id:
-            logger.info(f"Re-instating order {target_order_num} for {symbol} that was previously placed on Alpaca "
-                       f"(old Order ID: {old_order_id}). Old order remains in cancelled orders table. "
-                       f"New order will get a new order_id when placed.")
+        # Update database
+        manager.db.update_order_status(symbol, order_index if order_index is not None else ladder.current_order_index, "pending", None)
         
         # If this was not the current order, we may need to adjust the current_order_index
         if order_index is not None and order_index < ladder.current_order_index:
             # Re-instate an earlier order - reset to that order
-            ladder.current_order_index = order_index
+            manager.db.update_current_order_index(symbol, order_index)
             logger.info(f"Re-instated order {target_order_num} for {symbol} and reset current_order_index to {order_index}")
         else:
             logger.info(f"Re-instated order {target_order_num} for {symbol} (status: {old_status} -> pending)")
+        
+        # Invalidate cache so changes are reflected
+        manager._invalidate_ladders_cache()
         
         # Send notification about re-instatement
         total_orders = len(ladder.orders)
@@ -1090,6 +1154,225 @@ def reinstate_gtt_order():
         })
     except Exception as e:
         logger.error(f"Error re-instating GTT order: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/upload-stocks-csv', methods=['POST'])
+@require_auth
+def upload_stocks_csv():
+    """Upload and import stocks/ETFs CSV file"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Validate file extension
+        if not file.filename.endswith('.csv'):
+            return jsonify({"error": "File must be a CSV file"}), 400
+        
+        # Save uploaded file temporarily
+        import tempfile
+        import shutil
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_dir = os.path.join(project_root, 'data')
+        os.makedirs(data_dir, exist_ok=True)
+        
+        # Save to data directory
+        stocks_csv_path = os.path.join(data_dir, 'gtt-live-stocks-etfs.csv')
+        
+        # Backup existing file if it exists
+        if os.path.exists(stocks_csv_path):
+            backup_path = stocks_csv_path + '.backup'
+            shutil.copy2(stocks_csv_path, backup_path)
+        
+        # Save uploaded file
+        file.save(stocks_csv_path)
+        
+        # Load orders from CSV
+        try:
+            manager.load_orders_from_csv(stocks_csv_path, asset_type='stock')
+        except ValueError as e:
+            # Validation error - unsupported symbols
+            logger.error(f"Validation error uploading stocks CSV: {e}")
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            # Other errors
+            logger.error(f"Error uploading stocks CSV: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+        
+        # Invalidate cache
+        manager._invalidate_ladders_cache()
+        
+        logger.info(f"Uploaded and imported stocks CSV: {file.filename}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Stocks CSV uploaded and imported successfully",
+            "filename": file.filename
+        })
+    except Exception as e:
+        logger.error(f"Error uploading stocks CSV: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/upload-crypto-csv', methods=['POST'])
+@require_auth
+def upload_crypto_csv():
+    """Upload and import crypto CSV file"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Validate file extension
+        if not file.filename.endswith('.csv'):
+            return jsonify({"error": "File must be a CSV file"}), 400
+        
+        # Save uploaded file temporarily
+        import tempfile
+        import shutil
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_dir = os.path.join(project_root, 'data')
+        os.makedirs(data_dir, exist_ok=True)
+        
+        # Save to data directory
+        crypto_csv_path = os.path.join(data_dir, 'gtt-live-crypto.csv')
+        
+        # Backup existing file if it exists
+        if os.path.exists(crypto_csv_path):
+            backup_path = crypto_csv_path + '.backup'
+            shutil.copy2(crypto_csv_path, backup_path)
+        
+        # Save uploaded file
+        file.save(crypto_csv_path)
+        
+        # Load orders from CSV
+        try:
+            manager.load_orders_from_csv(crypto_csv_path, asset_type='crypto')
+        except ValueError as e:
+            # Validation error - unsupported symbols
+            logger.error(f"Validation error uploading crypto CSV: {e}")
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            # Other errors
+            logger.error(f"Error uploading crypto CSV: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+        
+        # Invalidate cache
+        manager._invalidate_ladders_cache()
+        
+        logger.info(f"Uploaded and imported crypto CSV: {file.filename}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Crypto CSV uploaded and imported successfully",
+            "filename": file.filename
+        })
+    except Exception as e:
+        logger.error(f"Error uploading crypto CSV: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/edit-gtt-order', methods=['POST'])
+@require_auth
+def edit_gtt_order():
+    """Edit a GTT order's price and/or amount"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        symbol = data.get('symbol', '').upper()
+        order_index = data.get('order_index')  # 0-based index
+        new_price = data.get('price')
+        new_amount = data.get('amount')
+        
+        if not symbol:
+            return jsonify({"error": "Symbol required"}), 400
+        
+        if order_index is None:
+            return jsonify({"error": "order_index required"}), 400
+        
+        if new_price is None and new_amount is None:
+            return jsonify({"error": "At least one of 'price' or 'amount' must be provided"}), 400
+        
+        if symbol not in manager.ladders:
+            return jsonify({"error": f"Symbol {symbol} not found"}), 404
+        
+        ladder = manager.ladders[symbol]
+        
+        # Validate order index
+        if order_index < 0 or order_index >= len(ladder.orders):
+            return jsonify({"error": f"Invalid order_index. Must be between 0 and {len(ladder.orders) - 1}"}), 400
+        
+        target_order = ladder.orders[order_index]
+        
+        # Check if order can be edited (not filled)
+        if target_order.status == "filled":
+            return jsonify({
+                "error": f"Cannot edit filled order",
+                "status": target_order.status
+            }), 400
+        
+        # Update order in memory
+        if new_price is not None:
+            if new_price <= 0:
+                return jsonify({"error": "Price must be greater than 0"}), 400
+            target_order.price = float(new_price)
+        
+        if new_amount is not None:
+            if new_amount <= 0:
+                return jsonify({"error": "Amount must be greater than 0"}), 400
+            target_order.amount = float(new_amount)
+        
+        # Update database
+        # Get current order status and order_id
+        db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+        if order_index < len(db_orders):
+            db_order = db_orders[order_index]
+            manager.db.import_gtt_order(
+                symbol=symbol,
+                company=ladder.company,
+                order_index=order_index,
+                amount=target_order.amount,
+                price=target_order.price,
+                is_available_on_alpaca=ladder.is_available_on_alpaca,
+                status=target_order.status,
+                order_id=target_order.order_id,
+                asset_type=db_order.asset_type  # Preserve asset_type
+            )
+        
+        # Invalidate cache
+        manager._invalidate_ladders_cache()
+        
+        logger.info(f"Edited GTT order: {symbol} Order {order_index + 1} - Price: ${target_order.price:.2f}, Amount: {target_order.amount}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Order {order_index + 1} for {symbol} updated successfully",
+            "symbol": symbol,
+            "order_index": order_index,
+            "order_num": order_index + 1,
+            "price": target_order.price,
+            "amount": target_order.amount,
+            "status": target_order.status
+        })
+    except Exception as e:
+        logger.error(f"Error editing GTT order: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
