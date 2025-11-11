@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { StockChart } from "@/components/stock-chart"
 import { ColumnDef } from "@tanstack/react-table"
-import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles } from "lucide-react"
+import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles, ExternalLink } from "lucide-react"
 
 // Reusable Icon Tooltip Component
 interface IconTooltipProps {
@@ -327,6 +327,40 @@ export default function OrdersPage() {
   const prices = pricesData?.prices || {}
   const marketStatus = pricesData?.market_status || null
   const loadingStatus = loadingStatusData || null
+  
+  // Helper function to get Alpaca order URL
+  const getAlpacaOrderUrl = (orderId: string): string => {
+    if (!orderId) return '#'
+    const isPaper = account?.is_paper ?? true // Default to paper if unknown
+    if (isPaper) {
+      return `https://app.alpaca.markets/paper/dashboard/orders/${orderId}`
+    } else {
+      return `https://broker.alpaca.markets/dashboard/orders/${orderId}`
+    }
+  }
+  
+  // Reusable Order ID component with link to Alpaca
+  const OrderIdLink = ({ orderId, className = "font-mono text-xs text-muted-foreground" }: { orderId: string | null, className?: string }) => {
+    if (!orderId) {
+      return <span className={className}>—</span>
+    }
+    
+    const alpacaUrl = getAlpacaOrderUrl(orderId)
+    
+    return (
+      <a
+        href={alpacaUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`${className} hover:text-primary hover:underline inline-flex items-center gap-1 transition-colors cursor-pointer group`}
+        title={`View order ${orderId} on Alpaca`}
+        onClick={(e) => e.stopPropagation()} // Prevent row click when clicking order ID
+      >
+        <span>{orderId.slice(0, 8)}...</span>
+        <ExternalLink className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+      </a>
+    )
+  }
   
   // Refresh function for manual refresh (used by buttons)
   const refreshData = () => {
@@ -1011,9 +1045,7 @@ export default function OrdersPage() {
       accessorKey: "order_id",
       header: "Order ID",
       cell: ({ row }) => (
-        <span className="font-mono text-xs text-yellow-400">
-          {row.original.order_id ? `${row.original.order_id.slice(0, 8)}...` : "—"}
-        </span>
+        <OrderIdLink orderId={row.original.order_id} className="font-mono text-xs text-yellow-400" />
       ),
     },
     {
@@ -1252,17 +1284,7 @@ export default function OrdersPage() {
       header: "Order ID",
       cell: ({ row }) => {
         const orderId = row.original.id
-        if (orderId) {
-          return (
-            <span 
-              className="font-mono text-xs text-muted-foreground"
-              title={orderId}
-            >
-              {orderId.slice(0, 8)}...
-            </span>
-          )
-        }
-        return <span className="text-muted-foreground text-xs">—</span>
+        return <OrderIdLink orderId={orderId} className="font-mono text-xs text-muted-foreground" />
       },
     },
     {
@@ -1803,8 +1825,8 @@ export default function OrdersPage() {
                                       <TableCell>
                                         {getStatusBadge(gttOrder.status, gttOrder.is_current)}
                                       </TableCell>
-                                      <TableCell className="font-mono text-xs text-muted-foreground">
-                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      <TableCell>
+                                        <OrderIdLink orderId={gttOrder.order_id} className="font-mono text-xs text-muted-foreground" />
                                       </TableCell>
                                     </TableRow>
                                   )
@@ -1902,8 +1924,8 @@ export default function OrdersPage() {
                                       <TableCell>
                                         {getStatusBadge(gttOrder.status, gttOrder.is_current)}
                                       </TableCell>
-                                      <TableCell className="font-mono text-xs text-muted-foreground">
-                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      <TableCell>
+                                        <OrderIdLink orderId={gttOrder.order_id} className="font-mono text-xs text-muted-foreground" />
                                       </TableCell>
                                     </TableRow>
                                   )
@@ -2001,8 +2023,8 @@ export default function OrdersPage() {
                                       <TableCell>
                                         {getStatusBadge(gttOrder.status, gttOrder.is_current)}
                                       </TableCell>
-                                      <TableCell className="font-mono text-xs text-muted-foreground">
-                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      <TableCell>
+                                        <OrderIdLink orderId={gttOrder.order_id} className="font-mono text-xs text-muted-foreground" />
                                       </TableCell>
                                     </TableRow>
                                   )
@@ -2293,8 +2315,8 @@ export default function OrdersPage() {
                                       <TableCell>
                                         {getStatusBadge(gttOrder.status, gttOrder.is_current)}
                                       </TableCell>
-                                      <TableCell className="font-mono text-xs text-muted-foreground">
-                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      <TableCell>
+                                        <OrderIdLink orderId={gttOrder.order_id} className="font-mono text-xs text-muted-foreground" />
                                       </TableCell>
                                     </TableRow>
                                   )
@@ -2392,8 +2414,8 @@ export default function OrdersPage() {
                                       <TableCell>
                                         {getStatusBadge(gttOrder.status, gttOrder.is_current)}
                                       </TableCell>
-                                      <TableCell className="font-mono text-xs text-muted-foreground">
-                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      <TableCell>
+                                        <OrderIdLink orderId={gttOrder.order_id} className="font-mono text-xs text-muted-foreground" />
                                       </TableCell>
                                     </TableRow>
                                   )
@@ -2491,8 +2513,8 @@ export default function OrdersPage() {
                                       <TableCell>
                                         {getStatusBadge(gttOrder.status, gttOrder.is_current)}
                                       </TableCell>
-                                      <TableCell className="font-mono text-xs text-muted-foreground">
-                                        {gttOrder.order_id ? `${gttOrder.order_id.slice(0, 8)}...` : "—"}
+                                      <TableCell>
+                                        <OrderIdLink orderId={gttOrder.order_id} className="font-mono text-xs text-muted-foreground" />
                                       </TableCell>
                                     </TableRow>
                                   )
