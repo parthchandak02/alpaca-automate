@@ -2157,7 +2157,7 @@ export default function OrdersPage() {
                       <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
                         <CardHeader className="p-1.5 sm:p-2">
                           <AccordionTrigger className="hover:no-underline py-0 items-start">
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-2 gap-2 sm:gap-1">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-8 sm:pr-2 gap-3 sm:gap-1">
                               <div className="text-left flex-1 min-w-0 w-full sm:w-auto">
                                 <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
                                   {symbol}
@@ -2170,10 +2170,10 @@ export default function OrdersPage() {
                                 </CardDescription>
                               </div>
                               
-                              <div className="flex flex-col sm:flex-row gap-1 sm:ml-1 flex-shrink-0 self-end sm:self-auto">
-                                <div className="flex flex-wrap items-center gap-1 overflow-visible">
+                              <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-1 sm:ml-1 flex-shrink-0 w-full sm:w-auto items-start sm:items-center">
+                                <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
                                   {currentPrice && (
-                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1 overflow-visible relative">
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1">
                                       <span>Current: {formatCurrency(currentPrice)}</span>
                                       <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
                                     </Badge>
@@ -2191,7 +2191,7 @@ export default function OrdersPage() {
                                   })()}
                                 </div>
                                 
-                                <div className="flex flex-wrap items-center gap-1">
+                                <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
                                   <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
                                     {placedCount} of {totalOrders} placed
                                   </Badge>
@@ -2647,7 +2647,7 @@ export default function OrdersPage() {
                       <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
                         <CardHeader className="p-1.5 sm:p-2">
                           <AccordionTrigger className="hover:no-underline py-0 items-start">
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-2 gap-2 sm:gap-1">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-8 sm:pr-2 gap-3 sm:gap-1">
                               <div className="text-left flex-1 min-w-0 w-full sm:w-auto">
                                 <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
                                   {symbol}
@@ -2660,10 +2660,10 @@ export default function OrdersPage() {
                                 </CardDescription>
                               </div>
                               
-                              <div className="flex flex-col sm:flex-row gap-1 sm:ml-1 flex-shrink-0 self-end sm:self-auto">
-                                <div className="flex flex-wrap items-center gap-1 overflow-visible">
+                              <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-1 sm:ml-1 flex-shrink-0 w-full sm:w-auto items-start sm:items-center">
+                                <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
                                   {currentPrice && (
-                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1 overflow-visible relative">
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1">
                                       <span>Current: {formatCurrency(currentPrice)}</span>
                                       <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
                                     </Badge>
@@ -2681,7 +2681,7 @@ export default function OrdersPage() {
                                   })()}
                                 </div>
                                 
-                                <div className="flex flex-wrap items-center gap-1">
+                                <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
                                   <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
                                     {placedCount} of {totalOrders} placed
                                   </Badge>
