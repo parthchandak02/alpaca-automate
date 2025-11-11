@@ -41,9 +41,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: alpaca-trading
-          directory: ui
+          projectName: alpaca
+          directory: ui/out
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: Only deploy on main branch
-          # branch: main
 
