@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { StockChart } from "@/components/stock-chart"
 import { ColumnDef } from "@tanstack/react-table"
-import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, BarChart3, Target, Coins, Zap } from "lucide-react"
+import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles } from "lucide-react"
 
 // Reusable Icon Tooltip Component
 interface IconTooltipProps {
@@ -1678,20 +1678,20 @@ export default function OrdersPage() {
         {/* Tabs */}
         <Tabs defaultValue="stocks-orders" className="w-full">
           <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1">
-            <TabsTrigger value="stocks-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap">
-              <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+            <TabsTrigger value="stocks-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap data-[state=active]:bg-purple-500/10 data-[state=active]:text-purple-400 data-[state=active]:border-purple-500/30">
+              <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
               <span className="text-center leading-tight">Stock/ETF Orders</span>
             </TabsTrigger>
-            <TabsTrigger value="stocks-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap">
-              <Target className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+            <TabsTrigger value="stocks-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap data-[state=active]:bg-purple-500/10 data-[state=active]:text-purple-400 data-[state=active]:border-purple-500/30">
+              <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
               <span className="text-center leading-tight">Stock/ETF GTT</span>
             </TabsTrigger>
-            <TabsTrigger value="crypto-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap">
-              <Coins className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+            <TabsTrigger value="crypto-orders" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap data-[state=active]:bg-pink-500/10 data-[state=active]:text-pink-400 data-[state=active]:border-pink-500/30">
+              <Wallet className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
               <span className="text-center leading-tight">Crypto Orders</span>
             </TabsTrigger>
-            <TabsTrigger value="crypto-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap">
-              <Zap className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+            <TabsTrigger value="crypto-gtt" className="flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm px-1.5 sm:px-2 whitespace-normal sm:whitespace-nowrap data-[state=active]:bg-pink-500/10 data-[state=active]:text-pink-400 data-[state=active]:border-pink-500/30">
+              <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
               <span className="text-center leading-tight">Crypto GTT</span>
             </TabsTrigger>
           </TabsList>
