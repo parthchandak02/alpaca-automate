@@ -12,6 +12,7 @@ import os
 import csv
 import re
 import time
+import threading
 import asyncio
 import ssl
 import logging
@@ -1160,118 +1161,6 @@ class GTTOrderManager:
                     logger.error(f"Order not found in ladder for {symbol}")
                     return
                 
-                order_num = order_index + 1
-                total_orders = len(ladder.orders)
-            
-            # Check account buying power before placing order
-            account = self.trading_client.get_account()
-            buying_power = float(account.buying_power)
-            order_value = order.price * order.amount
-            
-            if order_value > buying_power:
-                logger.warning(f"Insufficient buying power for {symbol}. "
-                             f"Required: ${order_value:.2f}, Available: ${buying_power:.2f}")
-                
-                # Send email notification for insufficient buying power
-                self._send_email_notification(
-                    title="⚠️ Insufficient Buying Power",
-                    description=f"**{symbol}** - Order {order_num} could not be placed due to insufficient buying power.",
-                    fields=[
-                        {"name": "💰 Required", "value": f"${order_value:.2f}", "inline": True},
-                        {"name": "💵 Available", "value": f"${buying_power:.2f}", "inline": True},
-                        {"name": "📊 Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
-                        {"name": "📈 Order Details", "value": f"Limit: ${order.price:.2f}, Qty: {order.amount} shares", "inline": False},
-                    ],
-                    footer_text=f"{ladder.company} • Order {order_num}/{total_orders} • Action Required"
-                )
-                
-                # Send Discord notification
-                self._send_discord_notification(
-                    title="⚠️ Insufficient Buying Power",
-                    description=f"**{symbol}** - Order {order_num} could not be placed",
-                    color=0xff9900,  # Orange
-                    fields=[
-                        {"name": "💰 Required", "value": f"${order_value:.2f}", "inline": True},
-                        {"name": "💵 Available", "value": f"${buying_power:.2f}", "inline": True},
-                        {"name": "📊 Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
-                    ],
-                    footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
-                )
-                return
-            
-            # Format symbol correctly for order placement
-            # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
-            order_symbol = symbol
-            if ladder.asset_type == 'crypto':
-                # Check if symbol already has /USD suffix
-                if not symbol.endswith('/USD'):
-                    order_symbol = f"{symbol}/USD"
-            
-            # Place limit order
-            order_request = LimitOrderRequest(
-                symbol=order_symbol,
-                qty=order.amount,
-                side=OrderSide.BUY,
-                limit_price=order.price,
-                time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
-            )
-            
-            placed_order = self.trading_client.submit_order(order_data=order_request)
-            order.order_id = placed_order.id
-            # Use actual Alpaca status (could be "new", "accepted", etc.)
-            alpaca_status = placed_order.status.value if hasattr(placed_order.status, 'value') else str(placed_order.status)
-            order.status = alpaca_status.lower() if alpaca_status else "placed"
-            
-            # Update database
-            self.db.update_order_status(symbol, order_index, order.status, order.order_id)
-            
-            # Invalidate cache so changes are reflected
-            self._invalidate_ladders_cache()
-            
-            logger.info(f"ORDER PLACED: {symbol} - Order {order_num} "
-                       f"Limit: ${order.price:.2f}, "
-                       f"Qty: {order.amount}, Order ID: {placed_order.id}")
-            
-            console.print(f"[bold green]✓ ORDER PLACED[/bold green]: {symbol} - Order {order_num} "
-                         f"Limit: [cyan]${order.price:.2f}[/cyan], "
-                         f"Qty: [yellow]{order.amount}[/yellow], "
-                         f"Order ID: [dim]{placed_order.id}[/dim]")
-            
-            # Send Discord notification for order placed
-            self._send_discord_notification(
-                title="✅ Order Placed",
-                description=f"**{symbol}** - Order {order_num} of {total_orders} has been placed",
-                color=0x00ff00,  # Green (will be converted to decimal)
-                fields=[
-                    {"name": "💰 Limit Price", "value": f"${order.price:.2f}", "inline": True},
-                    {"name": "📊 Quantity", "value": f"{order.amount} shares", "inline": True},
-                    {"name": "🆔 Order ID", "value": f"`{placed_order.id[:8]}...`", "inline": False},
-                    {"name": "📈 Status", "value": "**Placed** - Waiting for execution", "inline": False},
-                ],
-                footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
-            )
-            
-            # Send email notification for order placed
-            self._send_email_notification(
-                title="✅ Order Placed",
-                description=f"{symbol} - Order {order_num} of {total_orders} has been placed",
-                fields=[
-                    {"name": "Limit Price", "value": f"${order.price:.2f}"},
-                    {"name": "Quantity", "value": f"{order.amount} shares"},
-                    {"name": "Order ID", "value": placed_order.id[:8] + "..."},
-                    {"name": "Status", "value": "Placed - Waiting for execution"},
-                ],
-                footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
-            )
-            
-            # Record activity for daily/weekly summaries
-            self.notification_manager.record_order_activity(
-                symbol=symbol,
-                company=ladder.company,
-                order_num=order_num,
-                action='placed',
-                price=order.price,
-                amount=order.amount,
                 order_num = order_index + 1
                 total_orders = len(ladder.orders)
                 
