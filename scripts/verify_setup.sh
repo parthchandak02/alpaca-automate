@@ -45,37 +45,45 @@ else
 fi
 echo ""
 
-# 3. Check Cloudflare Tunnel Backend
-echo -e "${BLUE}3. Cloudflare Tunnel Backend (api-alpaca.parthchandak.info)${NC}"
+# 3. Check Cloudflare Tunnel Backend (if configured)
+echo -e "${BLUE}3. Cloudflare Tunnel Backend${NC}"
 echo "─────────────────────────────────────────"
-if curl -s https://api-alpaca.parthchandak.info/api/status > /dev/null 2>&1; then
-    echo -e "${GREEN}✅ Cloudflare Tunnel backend is accessible${NC}"
-    STATUS=$(curl -s https://api-alpaca.parthchandak.info/api/status | head -c 50)
-    echo "   Response: ${STATUS}..."
+# Check if tunnel is configured by looking for cloudflared config
+if [ -f ~/.cloudflared/config.yml ]; then
+    # Extract hostname from config if possible
+    TUNNEL_HOSTNAME=$(grep -A 1 "hostname:" ~/.cloudflared/config.yml 2>/dev/null | grep -v "hostname:" | head -1 | tr -d ' ' || echo "")
+    if [ -n "$TUNNEL_HOSTNAME" ]; then
+        if curl -s "https://${TUNNEL_HOSTNAME}/api/status" > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ Cloudflare Tunnel backend is accessible${NC}"
+            echo "   URL: https://${TUNNEL_HOSTNAME}"
+            STATUS=$(curl -s "https://${TUNNEL_HOSTNAME}/api/status" | head -c 50)
+            echo "   Response: ${STATUS}..."
+        else
+            echo -e "${RED}❌ Cloudflare Tunnel backend is NOT accessible${NC}"
+            echo "   Expected URL: https://${TUNNEL_HOSTNAME}"
+            echo "   Check: pm2 logs cloudflare-tunnel"
+            ALL_PASSED=false
+        fi
+    else
+        echo -e "${YELLOW}⚠️  Cloudflare Tunnel config found but hostname not detected${NC}"
+        echo "   Check ~/.cloudflared/config.yml"
+    fi
 else
-    echo -e "${RED}❌ Cloudflare Tunnel backend is NOT accessible${NC}"
-    echo "   Check: pm2 logs cloudflare-tunnel"
-    ALL_PASSED=false
+    echo -e "${YELLOW}⚠️  Cloudflare Tunnel not configured (optional)${NC}"
+    echo "   Skipping production backend check"
 fi
 echo ""
 
-# 4. Check Cloudflare Pages Frontend
-echo -e "${BLUE}4. Cloudflare Pages Frontend (alpaca.parthchandak.info)${NC}"
+# 4. Check Cloudflare Pages Frontend (if configured)
+echo -e "${BLUE}4. Cloudflare Pages Frontend${NC}"
 echo "─────────────────────────────────────────"
-if curl -s https://alpaca.parthchandak.info > /dev/null 2>&1; then
-    echo -e "${GREEN}✅ Cloudflare Pages frontend is accessible${NC}"
-    echo "   URL: https://alpaca.parthchandak.info"
-    echo "   Should connect to: https://api-alpaca.parthchandak.info:443"
-    echo ""
-    echo -e "${YELLOW}⚠️  Verify Cloudflare Pages environment variables:${NC}"
-    echo "   - NEXT_PUBLIC_API_HOST: api-alpaca.parthchandak.info"
-    echo "   - NEXT_PUBLIC_API_PORT: 443"
-    echo ""
-    echo "   Check in Cloudflare Dashboard → Workers & Pages → alpaca → Settings → Environment Variables"
-else
-    echo -e "${RED}❌ Cloudflare Pages frontend is NOT accessible${NC}"
-    ALL_PASSED=false
-fi
+echo -e "${YELLOW}⚠️  Cloudflare Pages frontend check skipped (requires domain configuration)${NC}"
+echo "   To check manually:"
+echo "   1. Visit your Cloudflare Pages URL"
+echo "   2. Verify it connects to your API backend"
+echo "   3. Check Cloudflare Dashboard → Workers & Pages → Your Project → Settings → Environment Variables"
+echo "      - NEXT_PUBLIC_API_HOST: api-your-domain.com"
+echo "      - NEXT_PUBLIC_API_PORT: 443"
 echo ""
 
 # 5. Check PM2 Status
@@ -108,15 +116,16 @@ if [ "$ALL_PASSED" = true ]; then
     echo ""
     echo "Your setup supports:"
     echo "  ✅ Local frontend → Local backend (http://localhost:3000 → http://localhost:8080)"
-    echo "  ✅ Cloudflare Pages → Cloudflare Tunnel (https://alpaca.parthchandak.info → https://api-alpaca.parthchandak.info)"
+    if [ -f ~/.cloudflared/config.yml ]; then
+        TUNNEL_HOSTNAME=$(grep -A 1 "hostname:" ~/.cloudflared/config.yml 2>/dev/null | grep -v "hostname:" | head -1 | tr -d ' ' || echo "")
+        if [ -n "$TUNNEL_HOSTNAME" ]; then
+            echo "  ✅ Cloudflare Tunnel backend configured: https://${TUNNEL_HOSTNAME}"
+        fi
+    fi
     echo ""
     echo "To test local development:"
     echo "  1. Open http://localhost:3000"
     echo "  2. Frontend will auto-detect localhost and connect to http://localhost:8080"
-    echo ""
-    echo "To test production:"
-    echo "  1. Open https://alpaca.parthchandak.info"
-    echo "  2. Frontend will auto-detect domain and connect to https://api-alpaca.parthchandak.info"
 else
     echo -e "${RED}❌ Some checks failed. Please review above.${NC}"
 fi
