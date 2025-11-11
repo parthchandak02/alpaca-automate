@@ -331,12 +331,8 @@ export default function OrdersPage() {
   // Helper function to get Alpaca order URL
   const getAlpacaOrderUrl = (orderId: string): string => {
     if (!orderId) return '#'
-    const isPaper = account?.is_paper ?? true // Default to paper if unknown
-    if (isPaper) {
-      return `https://app.alpaca.markets/paper/dashboard/orders/${orderId}`
-    } else {
-      return `https://broker.alpaca.markets/dashboard/orders/${orderId}`
-    }
+    // Alpaca order page format: https://app.alpaca.markets/dashboard/order/{order_id}
+    return `https://app.alpaca.markets/dashboard/order/${orderId}`
   }
   
   // Reusable Order ID component with link to Alpaca
