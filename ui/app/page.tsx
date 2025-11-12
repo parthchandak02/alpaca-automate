@@ -1,16 +1,21 @@
 "use client"
 
 import { useEffect, useState, useMemo } from "react"
+import { toggleGlobalMode, toggleGTTMode, linkGTTToOrder, linkOrderToGTT, getAvailableOrdersForLinking, AvailableOrder, createManualGTTOrder } from "@/lib/gtt-api"
+import { LinkingModal } from "@/components/linking-modal"
+import { ManualGTTForm } from "@/components/manual-gtt-form"
 import { useRouter } from "next/navigation"
 import useSWR, { mutate } from "swr"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { DataTable, ColumnHeaderWithDropdown } from "@/components/data-table"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { StockChart } from "@/components/stock-chart"
 import { ColumnDef } from "@tanstack/react-table"
 import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles, ExternalLink, Download, FileText, AlertTriangle, LogOut } from "lucide-react"
@@ -110,13 +115,13 @@ function ForceFillButton({
           onHideConfirm()
         }, 300)
       } else {
-        alert(`❌ Error: ${data.error || 'Unknown error'}`)
+        alert(`Error: ${data.error || 'Unknown error'}`)
         onHideConfirm()
         setLoading(false)
       }
     } catch (error) {
       console.error('Error force filling:', error)
-      alert(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       onHideConfirm()
       setLoading(false)
     }
@@ -179,17 +184,24 @@ interface ActiveOrder {
   symbol: string
   side: string
   quantity: number
+  notional?: number | null  // USD amount if order was placed with notional
+  calculated_qty?: number | null  // Calculated quantity if order was placed with notional
+  calculated_notional?: number | null  // Calculated USD amount if order was placed with qty
   limit_price: number | null
+  stop_price?: number | null
+  order_type?: string | null  // "Market", "Limit @ USD 0.18", etc.
   status: string
   created_at: string
   updated_at?: string | null
   filled_at?: string | null
   canceled_at?: string | null
   filled_qty: number
+  filled_notional?: number | null  // Actual filled USD amount
+  filled_avg_price?: number | null  // Average fill price
   asset_type?: string  // 'stock' or 'crypto' - from Alpaca
 }
 
-interface GTTOrder {
+export interface GTTOrder {
   symbol: string
   company: string
   order_index: number
@@ -203,6 +215,8 @@ interface GTTOrder {
   is_available_on_alpaca?: boolean
   asset_type?: string  // 'stock' or 'crypto'
   reinstated?: boolean  // Whether this order has been reinstated before
+  mode?: string  // 'auto' | 'manual' - individual order mode
+  gtt_order_id?: number  // Database ID for linking operations
 }
 
 interface AccountInfo {
@@ -414,11 +428,27 @@ export default function OrdersPage() {
     }
   }
   
+  // Fetch orders directly from Alpaca
   const { data: ordersData, error: ordersError, isLoading: ordersLoading } = useSWR(
     isAuthenticated === true ? `${apiBaseUrl}/api/orders` : null,
     fetcher,
     { refreshInterval: 5000, revalidateOnFocus: false }
   )
+  
+  // Fetch GTT orders from database
+  const { data: gttData, error: gttError, isLoading: gttLoading } = useSWR(
+    isAuthenticated === true ? `${apiBaseUrl}/api/gtt` : null,
+    fetcher,
+    { refreshInterval: 5000, revalidateOnFocus: false }
+  )
+  
+  // Log errors for debugging
+  if (ordersError && typeof window !== 'undefined') {
+    console.error('Orders fetch error:', ordersError)
+  }
+  if (gttError && typeof window !== 'undefined') {
+    console.error('GTT fetch error:', gttError)
+  }
   
   const { data: accountData, error: accountError, isLoading: accountLoading } = useSWR(
     isAuthenticated === true ? `${apiBaseUrl}/api/account` : null,
@@ -445,8 +475,10 @@ export default function OrdersPage() {
   )
   
   // Extract data from SWR responses
-  const activeOrders = ordersData?.active_orders || []
-  const gttOrders = ordersData?.gtt_orders || []
+  const activeOrders = ordersData?.orders || []  // Changed from active_orders to orders
+  const gttOrders = gttData?.gtt_orders || []  // Changed to fetch from separate endpoint
+  const globalModeStock = gttData?.global_mode_stock || 'auto'  // Global mode for stocks
+  const globalModeCrypto = gttData?.global_mode_crypto || 'auto'  // Global mode for crypto
   const account = accountData || null
   const prices = pricesData?.prices || {}
   const marketStatus = pricesData?.market_status || null
@@ -488,17 +520,94 @@ export default function OrdersPage() {
   const refreshData = () => {
     if (isAuthenticated === true) {
       mutate(`${apiBaseUrl}/api/orders`)
+      mutate(`${apiBaseUrl}/api/gtt`)
       mutate(`${apiBaseUrl}/api/account`)
       mutate(`${apiBaseUrl}/api/prices`)
     }
   }
+
+  const handleToggleGlobalMode = async (mode: 'auto' | 'manual', assetType: 'stock' | 'crypto') => {
+    if (globalModeLoading) return
+    setGlobalModeLoading(true)
+    try {
+      await toggleGlobalMode(apiBaseUrl, mode, assetType)
+      mutate(`${apiBaseUrl}/api/gtt`) // Refresh GTT data to get updated global mode
+    } catch (error: any) {
+      console.error('Failed to toggle global mode:', error)
+      alert(error.message || 'Failed to toggle global mode')
+    } finally {
+      setGlobalModeLoading(false)
+    }
+  }
+
+  const handleToggleGTTMode = async (gttOrderId: number, currentMode: string | undefined, globalMode: string) => {
+    if (gttModeLoading[gttOrderId]) return
+    const effectiveMode = currentMode || globalMode
+    const newMode = effectiveMode === 'auto' ? 'manual' : 'auto'
+    
+    setGttModeLoading(prev => ({ ...prev, [gttOrderId]: true }))
+    try {
+      await toggleGTTMode(apiBaseUrl, gttOrderId, newMode)
+      mutate(`${apiBaseUrl}/api/gtt`) // Refresh GTT data
+    } catch (error: any) {
+      console.error('Failed to toggle GTT mode:', error)
+      alert(error.message || 'Failed to toggle GTT mode')
+    } finally {
+      setGttModeLoading(prev => ({ ...prev, [gttOrderId]: false }))
+    }
+  }
+
+  const handleOpenLinkingModal = async (type: 'gtt-to-order' | 'order-to-gtt', gttOrderId?: number, alpacaOrderId?: string, symbol?: string) => {
+    setLinkingModal({ type, gttOrderId, alpacaOrderId, symbol })
+    if (type === 'gtt-to-order') {
+      setLoadingAvailableOrders(true)
+      try {
+        const orders = await getAvailableOrdersForLinking(apiBaseUrl)
+        setAvailableOrders(orders)
+      } catch (error: any) {
+        console.error('Failed to load available orders:', error)
+        alert(error.message || 'Failed to load available orders')
+        setLinkingModal(null)
+      } finally {
+        setLoadingAvailableOrders(false)
+      }
+    }
+  }
+
+  const handleLink = async (gttOrderId: number, alpacaOrderId: string) => {
+    try {
+      if (linkingModal?.type === 'gtt-to-order') {
+        await linkGTTToOrder(apiBaseUrl, gttOrderId, alpacaOrderId)
+      } else {
+        await linkOrderToGTT(apiBaseUrl, alpacaOrderId, gttOrderId)
+      }
+      mutate(`${apiBaseUrl}/api/gtt`)
+      mutate(`${apiBaseUrl}/api/orders`)
+      setLinkingModal(null)
+    } catch (error: any) {
+      console.error('Failed to link orders:', error)
+      alert(error.message || 'Failed to link orders')
+    }
+  }
+  
+  const handleCreateManualGTTOrder = async (data: {
+    symbol: string
+    company: string
+    amount: number
+    price: number
+    asset_type: 'stock' | 'crypto'
+  }) => {
+    await createManualGTTOrder(apiBaseUrl, data)
+    mutate(`${apiBaseUrl}/api/gtt`)
+    setShowManualForm(null)
+  }
   
   // Determine loading state - show loading if initial load OR backend is processing
-  const isLoading = (ordersLoading && activeOrders.length === 0) || loadingStatus?.is_loading
-  const isInitialLoad = ordersLoading && activeOrders.length === 0 && !ordersData
+  const isLoading = ((ordersLoading || gttLoading) && activeOrders.length === 0 && gttOrders.length === 0) || loadingStatus?.is_loading
+  const isInitialLoad = (ordersLoading || gttLoading) && activeOrders.length === 0 && gttOrders.length === 0 && !ordersData && !gttData
   
   // Determine online status from SWR errors
-  const isOnline = !ordersError && !accountError && !pricesError
+  const isOnline = !ordersError && !gttError && !accountError && !pricesError
   
   // Track last price update time per symbol
   const [lastPriceUpdate, setLastPriceUpdate] = useState<Record<string, number>>({})
@@ -662,6 +771,18 @@ export default function OrdersPage() {
   const [gttSearchQuery, setGttSearchQuery] = useState<string>("")
   const [expandedAccordion, setExpandedAccordion] = useState<string | null>(null) // Track which accordion is open for lazy loading
   const [highlightedPrices, setHighlightedPrices] = useState<Record<string, number | null>>({}) // Track highlighted prices per symbol
+  const [highlightedOrderIndices, setHighlightedOrderIndices] = useState<Record<string, number | null>>({}) // Track highlighted order indices per symbol
+  const [globalModeLoading, setGlobalModeLoading] = useState(false)
+  const [gttModeLoading, setGttModeLoading] = useState<Record<number, boolean>>({}) // Track loading per gtt_order_id
+  const [linkingModal, setLinkingModal] = useState<{
+    type: 'gtt-to-order' | 'order-to-gtt'
+    gttOrderId?: number
+    alpacaOrderId?: string
+    symbol?: string
+  } | null>(null)
+  const [availableOrders, setAvailableOrders] = useState<AvailableOrder[]>([])
+  const [loadingAvailableOrders, setLoadingAvailableOrders] = useState(false)
+  const [showManualForm, setShowManualForm] = useState<{ type: 'stock' | 'crypto' } | null>(null)
   
   // Tooltip state for status icons
   const [tooltipState, setTooltipState] = useState<{
@@ -1135,11 +1256,12 @@ export default function OrdersPage() {
         const symbol = row.getValue(id) as string
         return symbol.toLowerCase().includes(value.toLowerCase())
       },
+      footer: () => <span className="text-sm font-semibold">Total</span>,
       cell: ({ row }) => {
         const position = row.original
         const tradingUrl = getAlpacaTradingUrl(position)
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <a
               href={tradingUrl}
               target="_blank"
@@ -1147,7 +1269,7 @@ export default function OrdersPage() {
               className="font-medium underline hover:text-primary transition-colors inline-flex items-center gap-1"
               onClick={(e) => e.stopPropagation()} // Prevent row click when clicking link
             >
-              <span>{position.display_symbol}</span>
+              <span className="text-sm">{position.display_symbol}</span>
               <ExternalLink className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
             </a>
             {position.asset_class === 'crypto' && (
@@ -1169,8 +1291,9 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return price.toString().includes(value) || Math.abs(price - numValue) < 0.01
       },
+      footer: () => null,
       cell: ({ row }) => {
-        return <span className="tabular-nums">{formatPositionCurrency(row.getValue("current_price"))}</span>
+        return <span className="tabular-nums text-sm">{formatPositionCurrency(row.getValue("current_price"))}</span>
       },
     },
     {
@@ -1183,9 +1306,10 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return qty.toString().includes(value) || Math.abs(qty - numValue) < 0.0001
       },
+      footer: () => null,
       cell: ({ row }) => {
         const qty = row.getValue("qty") as number
-        return <span className="tabular-nums">{formatPositionNumber(Math.abs(qty), 8)}</span>
+        return <span className="tabular-nums text-sm">{formatPositionNumber(Math.abs(qty), 8)}</span>
       },
     },
     {
@@ -1195,6 +1319,7 @@ export default function OrdersPage() {
         const side = row.getValue(id) as string
         return side.toLowerCase().includes(value.toLowerCase())
       },
+      footer: () => null,
       cell: ({ row }) => {
         const side = row.getValue("side") as string
         return (
@@ -1214,8 +1339,16 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return marketValue.toString().includes(value) || Math.abs(marketValue - numValue) < 0.01
       },
+      footer: ({ table }) => {
+        const filteredRows = table.getFilteredRowModel().rows
+        const total = filteredRows.reduce((sum, row) => {
+          const value = row.getValue("market_value") as number
+          return sum + (value || 0)
+        }, 0)
+        return <span className="tabular-nums text-sm">{formatPositionCurrency(total)}</span>
+      },
       cell: ({ row }) => {
-        return <span className="tabular-nums">{formatPositionCurrency(row.getValue("market_value"))}</span>
+        return <span className="tabular-nums text-sm">{formatPositionCurrency(row.getValue("market_value"))}</span>
       },
     },
     {
@@ -1228,8 +1361,9 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return avgEntry.toString().includes(value) || Math.abs(avgEntry - numValue) < 0.01
       },
+      footer: () => null,
       cell: ({ row }) => {
-        return <span className="tabular-nums">{formatPositionCurrency(row.getValue("avg_entry_price"))}</span>
+        return <span className="tabular-nums text-sm">{formatPositionCurrency(row.getValue("avg_entry_price"))}</span>
       },
     },
     {
@@ -1242,8 +1376,16 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return costBasis.toString().includes(value) || Math.abs(costBasis - numValue) < 0.01
       },
+      footer: ({ table }) => {
+        const filteredRows = table.getFilteredRowModel().rows
+        const total = filteredRows.reduce((sum, row) => {
+          const value = row.getValue("cost_basis") as number
+          return sum + (value || 0)
+        }, 0)
+        return <span className="tabular-nums text-sm">{formatPositionCurrency(total)}</span>
+      },
       cell: ({ row }) => {
-        return <span className="tabular-nums">{formatPositionCurrency(row.getValue("cost_basis"))}</span>
+        return <span className="tabular-nums text-sm">{formatPositionCurrency(row.getValue("cost_basis"))}</span>
       },
     },
     {
@@ -1258,6 +1400,7 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return todayPlpc.toString().includes(value) || Math.abs(todayPlpc - numValue) < 0.01
       },
+      footer: () => null,
       cell: ({ row }) => {
         const todayPlpc = row.original.today_plpc
         if (todayPlpc === null || todayPlpc === undefined) {
@@ -1265,7 +1408,7 @@ export default function OrdersPage() {
         }
         const isPositive = todayPlpc >= 0
         return (
-          <span className={`tabular-nums flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+          <span className={`tabular-nums text-sm flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
             {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
             {formatPositionPercent(todayPlpc)}
           </span>
@@ -1284,6 +1427,19 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return todayPl.toString().includes(value) || Math.abs(todayPl - numValue) < 0.01
       },
+      footer: ({ table }) => {
+        const filteredRows = table.getFilteredRowModel().rows
+        const total = filteredRows.reduce((sum, row) => {
+          const value = (row.original as Position).today_pl
+          return sum + (value || 0)
+        }, 0)
+        const isPositive = total >= 0
+        return (
+          <span className={`tabular-nums text-sm ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+            {formatPositionCurrency(total)}
+          </span>
+        )
+      },
       cell: ({ row }) => {
         const todayPl = row.original.today_pl
         if (todayPl === null || todayPl === undefined) {
@@ -1291,7 +1447,7 @@ export default function OrdersPage() {
         }
         const isPositive = todayPl >= 0
         return (
-          <span className={`tabular-nums ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+          <span className={`tabular-nums text-sm ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
             {formatPositionCurrency(todayPl)}
           </span>
         )
@@ -1307,11 +1463,12 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return plpc.toString().includes(value) || Math.abs(plpc - numValue) < 0.01
       },
+      footer: () => null,
       cell: ({ row }) => {
         const plpc = row.getValue("unrealized_plpc") as number
         const isPositive = plpc >= 0
         return (
-          <span className={`tabular-nums flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+          <span className={`tabular-nums text-sm flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
             {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
             {formatPositionPercent(plpc)}
           </span>
@@ -1328,11 +1485,24 @@ export default function OrdersPage() {
         if (isNaN(numValue)) return true
         return pl.toString().includes(value) || Math.abs(pl - numValue) < 0.01
       },
+      footer: ({ table }) => {
+        const filteredRows = table.getFilteredRowModel().rows
+        const total = filteredRows.reduce((sum, row) => {
+          const value = row.getValue("unrealized_pl") as number
+          return sum + (value || 0)
+        }, 0)
+        const isPositive = total >= 0
+        return (
+          <span className={`tabular-nums text-sm ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+            {formatPositionCurrency(total)}
+          </span>
+        )
+      },
       cell: ({ row }) => {
         const pl = row.getValue("unrealized_pl") as number
         const isPositive = pl >= 0
         return (
-          <span className={`tabular-nums ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+          <span className={`tabular-nums text-sm ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
             {formatPositionCurrency(pl)}
           </span>
         )
@@ -1341,15 +1511,15 @@ export default function OrdersPage() {
   ], [])
 
   // Column definitions for GTT Orders (used inside accordion)
-  const createGTTColumns = (currentPrice: number | undefined, onRefresh: () => void): ColumnDef<GTTOrder>[] => [
+  const createGTTColumns = (currentPrice: number | undefined, onRefresh: () => void, globalModeStock: string, globalModeCrypto: string): ColumnDef<GTTOrder>[] => [
     {
       accessorKey: "order_index",
       header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Order #" filterType="number" />,
       cell: ({ row }) => {
         const order = row.original
         return (
-          <div className="flex items-center gap-2">
-            {order.order_index}
+          <div className="flex items-center gap-1.5">
+            <span className="tabular-nums text-sm">{order.order_index}</span>
             {order.is_current && (
               <Badge variant="secondary" className="text-xs bg-primary/20 text-primary border-primary/30">
                 Current
@@ -1365,9 +1535,7 @@ export default function OrdersPage() {
       cell: ({ row }) => {
         const order = row.original
         return (
-          <div className="flex items-center gap-2">
-            {order.symbol}
-          </div>
+          <span className="text-sm">{order.symbol}</span>
         )
       },
     },
@@ -1377,9 +1545,7 @@ export default function OrdersPage() {
       cell: ({ row }) => {
         const order = row.original
         return (
-          <div className="flex items-center gap-2">
-            {order.company || '-'}
-          </div>
+          <span className="text-sm">{order.company || '-'}</span>
         )
       },
     },
@@ -1429,7 +1595,7 @@ export default function OrdersPage() {
         
         return (
           <div className="flex items-center gap-1 group">
-            <span>{order.amount}</span>
+            <span className="tabular-nums text-sm">{order.amount}</span>
             {canEdit && (
               <Button
                 size="sm"
@@ -1489,7 +1655,7 @@ export default function OrdersPage() {
           )
         }
         
-        const isHighlighted = highlightedPrices[order.symbol] === order.price
+        const isHighlighted = highlightedPrices[order.symbol] === order.price || highlightedOrderIndices[order.symbol] === order.order_index
         
         return (
           <div 
@@ -1497,11 +1663,14 @@ export default function OrdersPage() {
               isHighlighted ? 'bg-primary/20 rounded px-1 py-0.5' : ''
             }`}
             data-order-price={`${order.symbol}-${order.price.toFixed(2)}`}
+            data-order-index={order.order_index}
             onMouseEnter={() => {
               setHighlightedPrices(prev => ({ ...prev, [order.symbol]: order.price }))
+              setHighlightedOrderIndices(prev => ({ ...prev, [order.symbol]: order.order_index }))
             }}
             onMouseLeave={() => {
               setHighlightedPrices(prev => ({ ...prev, [order.symbol]: null }))
+              setHighlightedOrderIndices(prev => ({ ...prev, [order.symbol]: null }))
             }}
             onClick={() => {
               // Scroll to chart line - find the chart container and scroll to it
@@ -1511,7 +1680,7 @@ export default function OrdersPage() {
               }
             }}
           >
-            <span className={`font-medium ${isHighlighted ? 'font-semibold' : ''}`}>{formatCurrency(order.price)}</span>
+            <span className={`tabular-nums text-sm ${isHighlighted ? 'font-semibold' : ''}`}>{formatCurrency(order.price)}</span>
             {canEdit && (
               <Button
                 size="sm"
@@ -1535,11 +1704,72 @@ export default function OrdersPage() {
       cell: ({ row }) => getStatusBadge(row.original.status, row.original.is_current),
     },
     {
+      id: "mode",
+      header: "Mode",
+      cell: ({ row }) => {
+        const order = row.original
+        const globalMode = order.asset_type === 'crypto' ? globalModeCrypto : globalModeStock
+        const effectiveMode = order.mode || globalMode
+        const isLoading = gttModeLoading[order.gtt_order_id || 0] || false
+        
+        return (
+          <div className="flex items-center gap-2">
+            <Badge variant={effectiveMode === 'auto' ? 'default' : 'secondary'} className="text-xs">
+              {effectiveMode === 'auto' ? 'Auto' : 'Manual'}
+            </Badge>
+            {order.gtt_order_id && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleToggleGTTMode(order.gtt_order_id!, order.mode, globalMode)
+                }}
+                disabled={isLoading}
+                className="flex items-center justify-center w-6 h-6 rounded border border-input bg-background hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                title={`Toggle to ${effectiveMode === 'auto' ? 'manual' : 'auto'}`}
+              >
+                {isLoading ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <span className="text-xs">{effectiveMode === 'auto' ? 'A' : 'M'}</span>
+                )}
+              </button>
+            )}
+          </div>
+        )
+      },
+    },
+    {
       accessorKey: "order_id",
       header: "Order ID",
       cell: ({ row }) => (
         <OrderIdLink orderId={row.original.order_id} className="font-mono text-xs text-yellow-400" />
       ),
+    },
+    {
+      id: "link",
+      header: "Link",
+      cell: ({ row }) => {
+        const order = row.original
+        if (order.order_id) {
+          return <Badge variant="outline" className="text-xs">Linked</Badge>
+        }
+        if (!order.gtt_order_id) {
+          return <span className="text-muted-foreground text-xs">—</span>
+        }
+        return (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleOpenLinkingModal('gtt-to-order', order.gtt_order_id, undefined, order.symbol)
+            }}
+            className="h-7 text-xs"
+          >
+            Link
+          </Button>
+        )
+      },
     },
     {
       id: "actions",
@@ -1586,27 +1816,49 @@ export default function OrdersPage() {
   }, [gttOrders])
 
   // Separate active orders by asset type (use asset_type from Alpaca directly)
+  // Fallback: if asset_type is missing, infer from symbol format (/USD = crypto)
   const stocksActiveOrders = useMemo(() => {
     return activeOrders.filter((order: ActiveOrder) => {
-      // Use asset_type directly from Alpaca order
-      return order.asset_type !== 'crypto'  // Default to stock if not crypto
+      // Use asset_type directly from Alpaca order if available
+      if (order.asset_type !== undefined && order.asset_type !== null) {
+        return order.asset_type !== 'crypto'
+      }
+      // Fallback: infer from symbol format (crypto symbols typically have /USD)
+      return !order.symbol.includes('/USD')
     })
   }, [activeOrders])
 
   const cryptoActiveOrders = useMemo(() => {
     return activeOrders.filter((order: ActiveOrder) => {
-      // Use asset_type directly from Alpaca order
-      return order.asset_type === 'crypto'
+      // Use asset_type directly from Alpaca order if available
+      if (order.asset_type !== undefined && order.asset_type !== null) {
+        return order.asset_type === 'crypto'
+      }
+      // Fallback: infer from symbol format (crypto symbols typically have /USD)
+      return order.symbol.includes('/USD')
     })
   }, [activeOrders])
 
   // Separate GTT orders by asset_type (now determined from Alpaca, not CSV)
+  // Fallback: if asset_type is missing, infer from symbol format (/USD = crypto)
   const stocksGttOrders = useMemo(() => {
-    return gttOrders.filter((order: GTTOrder) => order.asset_type !== 'crypto')
+    return gttOrders.filter((order: GTTOrder) => {
+      if (order.asset_type !== undefined && order.asset_type !== null) {
+        return order.asset_type !== 'crypto'
+      }
+      // Fallback: infer from symbol format
+      return !order.symbol.includes('/USD')
+    })
   }, [gttOrders])
 
   const cryptoGttOrders = useMemo(() => {
-    return gttOrders.filter((order: GTTOrder) => order.asset_type === 'crypto')
+    return gttOrders.filter((order: GTTOrder) => {
+      if (order.asset_type !== undefined && order.asset_type !== null) {
+        return order.asset_type === 'crypto'
+      }
+      // Fallback: infer from symbol format
+      return order.symbol.includes('/USD')
+    })
   }, [gttOrders])
 
   // Group stocks GTT orders by symbol
@@ -1618,6 +1870,14 @@ export default function OrdersPage() {
       }
       grouped[order.symbol].push(order)
     })
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      console.log('stocksGttBySymbol:', {
+        totalOrders: stocksGttOrders.length,
+        symbolsCount: Object.keys(grouped).length,
+        symbols: Object.keys(grouped).slice(0, 10),
+        sampleOrder: stocksGttOrders[0] || null
+      })
+    }
     return grouped
   }, [stocksGttOrders])
 
@@ -1686,8 +1946,8 @@ export default function OrdersPage() {
         const order = row.original
         const isGTTOrder = gttOrderIds.has(order.id)
         return (
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{order.symbol}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">{order.symbol}</span>
             {isGTTOrder && (
               <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-primary/10 text-primary border-primary/20">
                 GTT
@@ -1701,20 +1961,82 @@ export default function OrdersPage() {
       accessorKey: "side",
       header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Side" />,
       cell: ({ row }) => (
-        <Badge variant={row.original.side === "buy" ? "default" : "destructive"}>
+        <Badge variant={row.original.side === "buy" ? "default" : "destructive"} className="text-xs">
           {row.original.side.toUpperCase()}
         </Badge>
       ),
     },
     {
-      accessorKey: "quantity",
-      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Quantity" filterType="number" />,
+      id: "order_type",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Order Type" />,
+      cell: ({ row }) => {
+        const order = row.original
+        if (order.order_type) {
+          return <span className="text-sm tabular-nums">{order.order_type}</span>
+        }
+        // Fallback: determine from limit_price
+        if (order.limit_price) {
+          return <span className="text-sm tabular-nums">Limit @ USD {order.limit_price.toFixed(2)}</span>
+        }
+        return <span className="text-sm tabular-nums">Market</span>
+      },
+    },
+    {
+      id: "amount_qty",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Amount / Quantity" />,
+      cell: ({ row }) => {
+        const order = row.original
+        const hasNotional = order.notional !== null && order.notional !== undefined
+        const hasCalculatedNotional = order.calculated_notional !== null && order.calculated_notional !== undefined
+        const hasCalculatedQty = order.calculated_qty !== null && order.calculated_qty !== undefined
+        
+        // Determine what to show
+        let usdAmount: number | null = null
+        let qty: number | null = null
+        
+        if (hasNotional) {
+          // Order was placed with USD amount
+          usdAmount = order.notional ?? null
+          qty = order.calculated_qty ?? order.filled_qty ?? null
+        } else if (hasCalculatedNotional) {
+          // Order was placed with quantity, calculate USD
+          usdAmount = order.calculated_notional ?? order.filled_notional ?? null
+          qty = order.quantity ?? order.filled_qty ?? null
+        } else {
+          // Fallback: use quantity and calculate notional
+          qty = order.quantity ?? order.filled_qty ?? null
+          if (qty && (order.filled_avg_price || order.limit_price)) {
+            const price = order.filled_avg_price || order.limit_price
+            if (price) {
+              usdAmount = qty * price
+            }
+          }
+        }
+        
+        return (
+          <div className="flex flex-col gap-0">
+            {usdAmount !== null && (
+              <span className="tabular-nums text-sm">
+                {formatCurrency(usdAmount)}
+              </span>
+            )}
+            {qty !== null && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {qty.toLocaleString('en-US', { maximumFractionDigits: 8 })}
+              </span>
+            )}
+            {usdAmount === null && qty === null && (
+              <span className="text-muted-foreground text-xs">—</span>
+            )}
+          </div>
+        )
+      },
     },
     {
       accessorKey: "limit_price",
       header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Limit Price" filterType="number" />,
       cell: ({ row }) =>
-        row.original.limit_price ? formatCurrency(row.original.limit_price) : "Market",
+        row.original.limit_price ? <span className="tabular-nums text-sm">{formatCurrency(row.original.limit_price)}</span> : <span className="text-sm">Market</span>,
     },
     {
       id: "current_price",
@@ -1724,7 +2046,7 @@ export default function OrdersPage() {
         const currentPrice = prices[symbol]
         if (currentPrice) {
           return (
-            <span className="font-medium text-foreground">
+            <span className="tabular-nums text-sm text-foreground">
               {formatCurrency(currentPrice)}
             </span>
           )
@@ -1735,11 +2057,40 @@ export default function OrdersPage() {
     {
       id: "filled",
       header: "Filled",
-      cell: ({ row }) => (
-        <span>
-          {row.original.filled_qty} / {row.original.quantity}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const order = row.original
+        const filledQty = order.filled_qty || 0
+        const totalQty = order.quantity || 0
+        const filledNotional = order.filled_notional
+        
+        return (
+          <div className="flex flex-col gap-0">
+            <span className="tabular-nums text-sm">
+              {filledQty.toLocaleString('en-US', { maximumFractionDigits: 8 })} / {totalQty.toLocaleString('en-US', { maximumFractionDigits: 8 })}
+            </span>
+            {filledNotional !== null && filledNotional !== undefined && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {formatCurrency(filledNotional)}
+              </span>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      id: "avg_fill_price",
+      header: ({ column }) => <ColumnHeaderWithDropdown column={column} title="Avg. Fill Price" filterType="number" />,
+      cell: ({ row }) => {
+        const order = row.original
+        if (order.filled_avg_price !== null && order.filled_avg_price !== undefined) {
+          return (
+            <span className="tabular-nums text-sm text-foreground">
+              {formatCurrency(order.filled_avg_price)}
+            </span>
+          )
+        }
+        return <span className="text-muted-foreground text-xs">—</span>
+      },
     },
     {
       accessorKey: "status",
@@ -1753,7 +2104,7 @@ export default function OrdersPage() {
         const dateStr = row.original.created_at
         return (
           <span 
-            className="text-sm text-foreground font-medium"
+            className="text-xs text-foreground tabular-nums"
             title={getFullDateTime(dateStr)}
           >
             {formatDateTime(dateStr)}
@@ -1796,6 +2147,40 @@ export default function OrdersPage() {
             ) : (
               <ChevronRight className="h-4 w-4" />
             )}
+          </Button>
+        )
+      },
+    },
+    {
+      id: "link_to_gtt",
+      header: "Link to GTT",
+      cell: ({ row }) => {
+        const order = row.original
+        const isLinked = gttOrderIds.has(order.id)
+        
+        if (isLinked) {
+          return <Badge variant="outline" className="text-xs">Linked</Badge>
+        }
+        
+        // Check if there are unlinked GTT orders for this symbol
+        const symbolGTTOrders = gttBySymbol[order.symbol] || []
+        const hasUnlinkedGTT = symbolGTTOrders.some(gtt => !gtt.order_id && gtt.gtt_order_id)
+        
+        if (!hasUnlinkedGTT) {
+          return <span className="text-muted-foreground text-xs">—</span>
+        }
+        
+        return (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleOpenLinkingModal('order-to-gtt', undefined, order.id, order.symbol)
+            }}
+            className="h-7 text-xs"
+          >
+            Link to GTT
           </Button>
         )
       },
@@ -1924,6 +2309,39 @@ export default function OrdersPage() {
 
   const stocksOrderCategories = useMemo(() => categorizeOrders(stocksActiveOrders), [stocksActiveOrders])
   const cryptoOrderCategories = useMemo(() => categorizeOrders(cryptoActiveOrders), [cryptoActiveOrders])
+  
+  // Debug logging (remove in production) - placed after all computations
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    console.log('🔍 Orders Debug:', { 
+      activeOrdersCount: activeOrders.length, 
+      gttOrdersCount: gttOrders.length,
+      ordersDataExists: !!ordersData,
+      gttDataExists: !!gttData,
+      ordersError: ordersError,
+      gttError: gttError,
+      ordersLoading: ordersLoading,
+      gttLoading: gttLoading,
+      stocksActiveOrdersCount: stocksActiveOrders.length,
+      cryptoActiveOrdersCount: cryptoActiveOrders.length,
+      stocksGttOrdersCount: stocksGttOrders.length,
+      cryptoGttOrdersCount: cryptoGttOrders.length,
+      filteredStocksGttBySymbolKeys: Object.keys(filteredStocksGttBySymbol).length,
+      filteredCryptoGttBySymbolKeys: Object.keys(filteredCryptoGttBySymbol).length,
+      stocksOrderCategories: {
+        active: stocksOrderCategories.active.length,
+        completed: stocksOrderCategories.completed.length,
+        cancelled: stocksOrderCategories.cancelled.length
+      },
+      cryptoOrderCategories: {
+        active: cryptoOrderCategories.active.length,
+        completed: cryptoOrderCategories.completed.length,
+        cancelled: cryptoOrderCategories.cancelled.length
+      },
+      sampleActiveOrder: activeOrders[0] || null,
+      sampleGttOrder: gttOrders[0] || null,
+      sampleStocksGttOrder: stocksGttOrders[0] || null
+    })
+  }
   
   // Show loading while checking auth - use explicit colors to prevent black screen
   if (isAuthenticated === null) {
@@ -2056,9 +2474,9 @@ export default function OrdersPage() {
                         title="Trading Mode"
                         content={
                           account.is_paper ? (
-                            <>🧪 <strong>Paper Trading</strong> - Simulated trading with virtual funds</>
+                            <>Paper Trading - Simulated trading with virtual funds</>
                           ) : (
-                            <>⚡ <strong>Live Trading</strong> - Real money transactions</>
+                            <>Live Trading - Real money transactions</>
                           )
                         }
                         isVisible={tooltipState.tradingMode}
@@ -2342,7 +2760,14 @@ export default function OrdersPage() {
                     </div>
                   </div>
                 ) : stocksOrderCategories.active.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground">No active stock/ETF orders</div>
+                  <div className="py-8 text-center text-muted-foreground">
+                    <p>No active stock/ETF orders</p>
+                    {activeOrders.length > 0 && (
+                      <p className="text-xs mt-2 text-muted-foreground/70">
+                        ({activeOrders.length} total orders, {stocksActiveOrders.length} stocks, {cryptoActiveOrders.length} crypto)
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <DataTable
                     columns={activeOrderColumns}
@@ -2619,49 +3044,95 @@ export default function OrdersPage() {
           {/* Stock/ETF GTT Tab */}
           <TabsContent value="stocks-gtt" className="space-y-4 mt-4">
             {/* CSV Upload and Download Buttons */}
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDownloadTemplate('stocks')}
-                className="bg-green-600/10 hover:bg-green-600/20 text-green-600 border-green-600/30 hover:border-green-600/50"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Download Template
-              </Button>
-              <div className="relative">
-                <input
-                  type="file"
-                  accept=".csv"
-                  id="stocks-csv-upload"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) handleCsvPreview(file, 'stocks')
-                    e.target.value = ''
-                  }}
-                />
+            <div className="flex items-center gap-2 flex-wrap justify-between">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => document.getElementById('stocks-csv-upload')?.click()}
-                  disabled={uploadingStocks}
-                  className="bg-green-500/10 hover:bg-green-500/20 text-green-500 border-green-500/30 hover:border-green-500/50"
+                  onClick={() => handleDownloadTemplate('stocks')}
+                  className="bg-green-600/10 hover:bg-green-600/20 text-green-600 border-green-600/30 hover:border-green-600/50"
                 >
-                  {uploadingStocks ? (
+                  <Download className="h-4 w-4 mr-2" />
+                  Download Template
+                </Button>
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    id="stocks-csv-upload"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleCsvPreview(file, 'stocks')
+                      e.target.value = ''
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById('stocks-csv-upload')?.click()}
+                    disabled={uploadingStocks}
+                    className="bg-green-500/10 hover:bg-green-500/20 text-green-500 border-green-500/30 hover:border-green-500/50"
+                  >
+                    {uploadingStocks ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload Stocks CSV
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowManualForm(showManualForm?.type === 'stock' ? null : { type: 'stock' })}
+                  className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 border-blue-500/30 hover:border-blue-500/50"
+                >
+                  {showManualForm?.type === 'stock' ? (
                     <>
-                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                      Uploading...
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
                     </>
                   ) : (
                     <>
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload Stocks CSV
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Add GTT Order
                     </>
                   )}
                 </Button>
               </div>
+              
+              {/* Global Mode Toggle - Stocks */}
+              <div className="flex items-center gap-2">
+                <Label htmlFor="stock-mode-toggle" className="text-xs text-muted-foreground cursor-pointer">
+                  Auto
+                </Label>
+                <Switch
+                  id="stock-mode-toggle"
+                  checked={globalModeStock === 'auto'}
+                  onCheckedChange={(checked) => handleToggleGlobalMode(checked ? 'auto' : 'manual', 'stock')}
+                  disabled={globalModeLoading}
+                />
+                <Label htmlFor="stock-mode-toggle" className="text-xs text-muted-foreground cursor-pointer">
+                  Manual
+                </Label>
+              </div>
             </div>
+
+            {/* Manual GTT Form */}
+            {showManualForm?.type === 'stock' && (
+              <ManualGTTForm
+                defaultAssetType="stock"
+                onCancel={() => setShowManualForm(null)}
+                onSubmit={handleCreateManualGTTOrder}
+                apiBaseUrl={apiBaseUrl}
+              />
+            )}
 
             {/* Search/Filter Bar */}
             <div className="flex items-center justify-end gap-2">
@@ -2715,7 +3186,16 @@ export default function OrdersPage() {
                       </Button>
                     </div>
                   ) : (
-                    <span>No stocks GTT orders found.</span>
+                    <div>
+                      <p>No stocks GTT orders found.</p>
+                      {typeof window !== 'undefined' && process.env.NODE_ENV === 'development' && (
+                        <p className="text-xs mt-2 text-muted-foreground/70">
+                          Debug: stocksGttOrders={stocksGttOrders.length}, 
+                          stocksGttBySymbol={Object.keys(stocksGttBySymbol).length}, 
+                          filtered={Object.keys(filteredStocksGttBySymbol).length}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -2739,7 +3219,7 @@ export default function OrdersPage() {
                   const placedCount = placedOrders.length + completedOrders.length
                   const remainingCount = pendingOrders.length
                   
-                  const columns = createGTTColumns(currentPrice, refreshData)
+                  const columns = createGTTColumns(currentPrice, refreshData, globalModeStock, globalModeCrypto)
                   
                   return (
                     <AccordionItem key={symbol} value={symbol} className="border-none">
@@ -2797,6 +3277,11 @@ export default function OrdersPage() {
                             <DataTable
                               columns={columns}
                               data={orders}
+                              getRowClassName={(row) => {
+                                const order = row.original as GTTOrder
+                                const isHighlighted = highlightedOrderIndices[symbol] === order.order_index || highlightedPrices[symbol] === order.price
+                                return isHighlighted ? "bg-primary/20 hover:bg-primary/25" : ""
+                              }}
                             />
                             <div className="pt-2 border-t" data-chart-symbol={symbol}>
                               <StockChart 
@@ -2805,8 +3290,30 @@ export default function OrdersPage() {
                                 height={200}
                                 enabled={expandedAccordion === symbol}
                                 highlightedPrice={highlightedPrices[symbol] || null}
+                                highlightedOrderIndex={highlightedOrderIndices[symbol] || null}
                                 onPriceHover={(price) => {
                                   setHighlightedPrices(prev => ({ ...prev, [symbol]: price }))
+                                  // Also highlight the corresponding order in table
+                                  if (price !== null) {
+                                    const matchingOrder = orders.find((o: GTTOrder) => Math.abs(o.price - price) < 0.01)
+                                    if (matchingOrder) {
+                                      setHighlightedOrderIndices(prev => ({ ...prev, [symbol]: matchingOrder.order_index }))
+                                    }
+                                  } else {
+                                    setHighlightedOrderIndices(prev => ({ ...prev, [symbol]: null }))
+                                  }
+                                }}
+                                onOrderHover={(orderIndex) => {
+                                  setHighlightedOrderIndices(prev => ({ ...prev, [symbol]: orderIndex }))
+                                  // Also highlight the corresponding price
+                                  if (orderIndex !== null) {
+                                    const matchingOrder = orders.find((o: GTTOrder) => o.order_index === orderIndex)
+                                    if (matchingOrder) {
+                                      setHighlightedPrices(prev => ({ ...prev, [symbol]: matchingOrder.price }))
+                                    }
+                                  } else {
+                                    setHighlightedPrices(prev => ({ ...prev, [symbol]: null }))
+                                  }
                                 }}
                                 onPriceClick={(price) => {
                                   // Find the table row with this price and scroll to it
@@ -2861,7 +3368,14 @@ export default function OrdersPage() {
                     </div>
                   </div>
                 ) : cryptoOrderCategories.active.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground">No active crypto orders</div>
+                  <div className="py-8 text-center text-muted-foreground">
+                    <p>No active crypto orders</p>
+                    {activeOrders.length > 0 && (
+                      <p className="text-xs mt-2 text-muted-foreground/70">
+                        ({activeOrders.length} total orders, {stocksActiveOrders.length} stocks, {cryptoActiveOrders.length} crypto)
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <DataTable
                     columns={activeOrderColumns}
@@ -3138,49 +3652,95 @@ export default function OrdersPage() {
           {/* Crypto GTT Tab */}
           <TabsContent value="crypto-gtt" className="space-y-4 mt-4">
             {/* CSV Upload and Download Buttons */}
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDownloadTemplate('crypto')}
-                className="bg-green-600/10 hover:bg-green-600/20 text-green-600 border-green-600/30 hover:border-green-600/50"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Download Template
-              </Button>
-              <div className="relative">
-                <input
-                  type="file"
-                  accept=".csv"
-                  id="crypto-csv-upload"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) handleCsvPreview(file, 'crypto')
-                    e.target.value = ''
-                  }}
-                />
+            <div className="flex items-center gap-2 flex-wrap justify-between">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => document.getElementById('crypto-csv-upload')?.click()}
-                  disabled={uploadingCrypto}
-                  className="bg-green-500/10 hover:bg-green-500/20 text-green-500 border-green-500/30 hover:border-green-500/50"
+                  onClick={() => handleDownloadTemplate('crypto')}
+                  className="bg-green-600/10 hover:bg-green-600/20 text-green-600 border-green-600/30 hover:border-green-600/50"
                 >
-                  {uploadingCrypto ? (
+                  <Download className="h-4 w-4 mr-2" />
+                  Download Template
+                </Button>
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    id="crypto-csv-upload"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleCsvPreview(file, 'crypto')
+                      e.target.value = ''
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById('crypto-csv-upload')?.click()}
+                    disabled={uploadingCrypto}
+                    className="bg-green-500/10 hover:bg-green-500/20 text-green-500 border-green-500/30 hover:border-green-500/50"
+                  >
+                    {uploadingCrypto ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload Crypto CSV
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowManualForm(showManualForm?.type === 'crypto' ? null : { type: 'crypto' })}
+                  className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 border-blue-500/30 hover:border-blue-500/50"
+                >
+                  {showManualForm?.type === 'crypto' ? (
                     <>
-                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                      Uploading...
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
                     </>
                   ) : (
                     <>
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload Crypto CSV
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Add GTT Order
                     </>
                   )}
                 </Button>
               </div>
+              
+              {/* Global Mode Toggle - Crypto */}
+              <div className="flex items-center gap-2">
+                <Label htmlFor="crypto-mode-toggle" className="text-xs text-muted-foreground cursor-pointer">
+                  Auto
+                </Label>
+                <Switch
+                  id="crypto-mode-toggle"
+                  checked={globalModeCrypto === 'auto'}
+                  onCheckedChange={(checked) => handleToggleGlobalMode(checked ? 'auto' : 'manual', 'crypto')}
+                  disabled={globalModeLoading}
+                />
+                <Label htmlFor="crypto-mode-toggle" className="text-xs text-muted-foreground cursor-pointer">
+                  Manual
+                </Label>
+              </div>
             </div>
+
+            {/* Manual GTT Form */}
+            {showManualForm?.type === 'crypto' && (
+              <ManualGTTForm
+                defaultAssetType="crypto"
+                onCancel={() => setShowManualForm(null)}
+                onSubmit={handleCreateManualGTTOrder}
+                apiBaseUrl={apiBaseUrl}
+              />
+            )}
 
             {/* Search/Filter Bar */}
             <div className="flex items-center justify-end gap-2">
@@ -3258,7 +3818,7 @@ export default function OrdersPage() {
                   const placedCount = placedOrders.length + completedOrders.length
                   const remainingCount = pendingOrders.length
                   
-                  const columns = createGTTColumns(currentPrice, refreshData)
+                  const columns = createGTTColumns(currentPrice, refreshData, globalModeStock, globalModeCrypto)
                   
                   return (
                     <AccordionItem key={symbol} value={symbol} className="border-none">
@@ -3316,6 +3876,11 @@ export default function OrdersPage() {
                             <DataTable
                               columns={columns}
                               data={orders}
+                              getRowClassName={(row) => {
+                                const order = row.original as GTTOrder
+                                const isHighlighted = highlightedOrderIndices[symbol] === order.order_index || highlightedPrices[symbol] === order.price
+                                return isHighlighted ? "bg-primary/20 hover:bg-primary/25" : ""
+                              }}
                             />
                             <div className="pt-2 border-t" data-chart-symbol={symbol}>
                               <StockChart 
@@ -3324,8 +3889,30 @@ export default function OrdersPage() {
                                 height={200}
                                 enabled={expandedAccordion === symbol}
                                 highlightedPrice={highlightedPrices[symbol] || null}
+                                highlightedOrderIndex={highlightedOrderIndices[symbol] || null}
                                 onPriceHover={(price) => {
                                   setHighlightedPrices(prev => ({ ...prev, [symbol]: price }))
+                                  // Also highlight the corresponding order in table
+                                  if (price !== null) {
+                                    const matchingOrder = orders.find((o: GTTOrder) => Math.abs(o.price - price) < 0.01)
+                                    if (matchingOrder) {
+                                      setHighlightedOrderIndices(prev => ({ ...prev, [symbol]: matchingOrder.order_index }))
+                                    }
+                                  } else {
+                                    setHighlightedOrderIndices(prev => ({ ...prev, [symbol]: null }))
+                                  }
+                                }}
+                                onOrderHover={(orderIndex) => {
+                                  setHighlightedOrderIndices(prev => ({ ...prev, [symbol]: orderIndex }))
+                                  // Also highlight the corresponding price
+                                  if (orderIndex !== null) {
+                                    const matchingOrder = orders.find((o: GTTOrder) => o.order_index === orderIndex)
+                                    if (matchingOrder) {
+                                      setHighlightedPrices(prev => ({ ...prev, [symbol]: matchingOrder.price }))
+                                    }
+                                  } else {
+                                    setHighlightedPrices(prev => ({ ...prev, [symbol]: null }))
+                                  }
                                 }}
                                 onPriceClick={(price) => {
                                   // Find the table row with this price and scroll to it
@@ -3511,6 +4098,20 @@ export default function OrdersPage() {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Linking Modal */}
+      {linkingModal && (
+        <LinkingModal
+          type={linkingModal.type}
+          gttOrderId={linkingModal.gttOrderId}
+          alpacaOrderId={linkingModal.alpacaOrderId}
+          symbol={linkingModal.symbol}
+          availableOrders={availableOrders}
+          gttOrders={gttOrders}
+          onLink={handleLink}
+          onClose={() => setLinkingModal(null)}
+        />
       )}
     </div>
   )

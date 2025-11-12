@@ -17,9 +17,10 @@ import {
 } from "@tanstack/react-table"
 import { ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronRight, ChevronDown } from "lucide-react"
 
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableFoot, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +35,7 @@ interface DataTableProps<TData, TValue> {
   data: TData[]
   getRowCanExpand?: (row: Row<TData>) => boolean
   renderSubComponent?: (row: Row<TData>) => React.ReactNode
+  getRowClassName?: (row: Row<TData>) => string // Optional function to get row className
 }
 
 export function DataTable<TData, TValue>({
@@ -41,6 +43,7 @@ export function DataTable<TData, TValue>({
   data,
   getRowCanExpand,
   renderSubComponent,
+  getRowClassName,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
@@ -92,7 +95,10 @@ export function DataTable<TData, TValue>({
               <React.Fragment key={row.id}>
                 <TableRow
                   data-state={row.getIsSelected() && "selected"}
-                  className={row.getIsExpanded() ? "bg-muted/50" : ""}
+                  className={cn(
+                    row.getIsExpanded() ? "bg-muted/50" : "",
+                    getRowClassName ? getRowClassName(row) : ""
+                  )}
                   onClick={() => {
                     if (getRowCanExpand && getRowCanExpand(row)) {
                       row.toggleExpanded()
@@ -127,6 +133,24 @@ export function DataTable<TData, TValue>({
             </TableRow>
           )}
         </TableBody>
+        {table.getFooterGroups().length > 0 && (
+          <TableFooter>
+            {table.getFooterGroups().map((footerGroup) => (
+              <TableRow key={footerGroup.id} className="bg-muted/50 font-semibold">
+                {footerGroup.headers.map((header) => (
+                  <TableFoot key={header.id}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.footer,
+                          header.getContext()
+                        )}
+                  </TableFoot>
+                ))}
+              </TableRow>
+            ))}
+          </TableFooter>
+        )}
       </Table>
       </div>
     </div>

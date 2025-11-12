@@ -31,6 +31,7 @@ class GTTOrderRow:
     is_available_on_alpaca: bool
     asset_type: str
     reinstated: bool = False  # Default to False for backward compatibility
+    mode: str = 'auto'  # 'auto' or 'manual'
 
 
 class GTTOrderDatabase:
@@ -115,6 +116,43 @@ class GTTOrderDatabase:
                 # Column already exists, ignore
                 pass
             
+            # Migration: Add mode column if it doesn't exist
+            try:
+                cursor.execute("ALTER TABLE gtt_orders ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto'")
+                logger.info("Added mode column to gtt_orders table")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+            
+            # Global settings table for global mode
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS global_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            
+            # Initialize global_mode_stock and global_mode_crypto if they don't exist
+            cursor.execute("""
+                INSERT OR IGNORE INTO global_settings (key, value, updated_at)
+                VALUES ('global_mode_stock', 'auto', ?)
+            """, (datetime.utcnow().isoformat(),))
+            cursor.execute("""
+                INSERT OR IGNORE INTO global_settings (key, value, updated_at)
+                VALUES ('global_mode_crypto', 'auto', ?)
+            """, (datetime.utcnow().isoformat(),))
+            
+            # Migrate old global_mode to global_mode_stock if it exists
+            cursor.execute("SELECT value FROM global_settings WHERE key = 'global_mode'")
+            old_mode = cursor.fetchone()
+            if old_mode:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO global_settings (key, value, updated_at)
+                    VALUES ('global_mode_stock', ?, ?)
+                """, (old_mode['value'], datetime.utcnow().isoformat()))
+                cursor.execute("DELETE FROM global_settings WHERE key = 'global_mode'")
+            
             # Add index for asset_type
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_gtt_asset_type ON gtt_orders(asset_type)")
             
@@ -129,7 +167,7 @@ class GTTOrderDatabase:
     def import_gtt_order(self, symbol: str, company: str, order_index: int, amount: float, 
                         price: float, is_available_on_alpaca: bool = True, 
                         status: str = 'pending', order_id: Optional[str] = None,
-                        asset_type: str = 'stock') -> int:
+                        asset_type: str = 'stock', mode: str = 'auto') -> int:
         """
         Import or update a GTT order
         
@@ -164,19 +202,19 @@ class GTTOrderDatabase:
                 cursor.execute("""
                     UPDATE gtt_orders 
                     SET company = ?, amount = ?, price = ?, 
-                        is_available_on_alpaca = ?, asset_type = ?, updated_at = ?
+                        is_available_on_alpaca = ?, asset_type = ?, mode = ?, updated_at = ?
                     WHERE id = ?
-                """, (company, amount, price, 1 if is_available_on_alpaca else 0, asset_type, now, existing['id']))
+                """, (company, amount, price, 1 if is_available_on_alpaca else 0, asset_type, mode, now, existing['id']))
                 return existing['id']
             else:
                 # Insert new order
                 cursor.execute("""
                     INSERT INTO gtt_orders 
                     (symbol, company, order_index, amount, price, status, order_id, 
-                     created_at, updated_at, is_available_on_alpaca, asset_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     created_at, updated_at, is_available_on_alpaca, asset_type, mode)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (symbol, company, order_index, amount, price, status, order_id, 
-                      now, now, 1 if is_available_on_alpaca else 0, asset_type))
+                      now, now, 1 if is_available_on_alpaca else 0, asset_type, mode))
                 return cursor.lastrowid
     
     def get_gtt_orders_by_symbol(self, symbol: str) -> List[GTTOrderRow]:
@@ -184,18 +222,20 @@ class GTTOrderDatabase:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT *, COALESCE(reinstated, 0) as reinstated FROM gtt_orders 
+                SELECT *, COALESCE(reinstated, 0) as reinstated, COALESCE(mode, 'auto') as mode FROM gtt_orders 
                 WHERE symbol = ? 
                 ORDER BY order_index ASC
             """, (symbol,))
             
             rows = cursor.fetchall()
-            # Convert rows to dicts and handle missing reinstated field
+            # Convert rows to dicts and handle missing fields
             result = []
             for row in rows:
                 row_dict = dict(row)
                 if 'reinstated' not in row_dict:
                     row_dict['reinstated'] = False
+                if 'mode' not in row_dict:
+                    row_dict['mode'] = 'auto'
                 result.append(GTTOrderRow(**row_dict))
             return result
     
@@ -204,17 +244,19 @@ class GTTOrderDatabase:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT *, COALESCE(reinstated, 0) as reinstated FROM gtt_orders 
+                SELECT *, COALESCE(reinstated, 0) as reinstated, COALESCE(mode, 'auto') as mode FROM gtt_orders 
                 ORDER BY symbol, order_index ASC
             """)
             
             rows = cursor.fetchall()
-            # Convert rows to dicts and handle missing reinstated field
+            # Convert rows to dicts and handle missing fields
             result = []
             for row in rows:
                 row_dict = dict(row)
                 if 'reinstated' not in row_dict:
                     row_dict['reinstated'] = False
+                if 'mode' not in row_dict:
+                    row_dict['mode'] = 'auto'
                 result.append(GTTOrderRow(**row_dict))
             return result
     
@@ -403,4 +445,220 @@ class GTTOrderDatabase:
             cursor.execute("SELECT COUNT(*) as count FROM gtt_orders LIMIT 1")
             result = cursor.fetchone()
             return result['count'] > 0 if result else False
+    
+    def get_global_mode(self, asset_type: str = 'stock') -> str:
+        """Get global mode setting (auto/manual) for a specific asset type"""
+        key = 'global_mode_stock' if asset_type == 'stock' else 'global_mode_crypto'
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM global_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row['value'] if row else 'auto'
+    
+    def set_global_mode(self, mode: str, asset_type: str = 'stock'):
+        """Set global mode setting (auto/manual) for a specific asset type"""
+        if mode not in ['auto', 'manual']:
+            raise ValueError("Mode must be 'auto' or 'manual'")
+        if asset_type not in ['stock', 'crypto']:
+            raise ValueError("Asset type must be 'stock' or 'crypto'")
+        key = 'global_mode_stock' if asset_type == 'stock' else 'global_mode_crypto'
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO global_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+            """, (key, mode, now))
+            conn.commit()
+    
+    def update_gtt_order_mode(self, gtt_order_id: int, mode: str):
+        """Update mode for a specific GTT order"""
+        if mode not in ['auto', 'manual']:
+            raise ValueError("Mode must be 'auto' or 'manual'")
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE gtt_orders 
+                SET mode = ?, updated_at = ?
+                WHERE id = ?
+            """, (mode, now, gtt_order_id))
+            conn.commit()
+    
+    def get_gtt_order_by_id(self, gtt_order_id: int) -> Optional[GTTOrderRow]:
+        """Get a GTT order by its database ID"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT *, COALESCE(reinstated, 0) as reinstated, COALESCE(mode, 'auto') as mode 
+                FROM gtt_orders 
+                WHERE id = ?
+            """, (gtt_order_id,))
+            row = cursor.fetchone()
+            if row:
+                row_dict = dict(row)
+                if 'reinstated' not in row_dict:
+                    row_dict['reinstated'] = False
+                if 'mode' not in row_dict:
+                    row_dict['mode'] = 'auto'
+                return GTTOrderRow(**row_dict)
+            return None
+    
+    def get_gtt_order_by_symbol_and_index(self, symbol: str, order_index: int) -> Optional[GTTOrderRow]:
+        """Get a GTT order by symbol and order_index"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT *, COALESCE(reinstated, 0) as reinstated, COALESCE(mode, 'auto') as mode 
+                FROM gtt_orders 
+                WHERE symbol = ? AND order_index = ?
+            """, (symbol, order_index))
+            row = cursor.fetchone()
+            if row:
+                row_dict = dict(row)
+                if 'reinstated' not in row_dict:
+                    row_dict['reinstated'] = False
+                if 'mode' not in row_dict:
+                    row_dict['mode'] = 'auto'
+                return GTTOrderRow(**row_dict)
+            return None
+    
+    def link_gtt_to_alpaca_order(self, gtt_order_id: int, alpaca_order_id: str, 
+                                 symbol: str, filled_at: Optional[str] = None,
+                                 canceled_at: Optional[str] = None):
+        """
+        Manually link a GTT order to an Alpaca order (regardless of status)
+        
+        Also updates the GTT order's order_id field
+        """
+        now = datetime.utcnow().isoformat()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Link in completed_orders table
+            cursor.execute("""
+                INSERT OR REPLACE INTO completed_orders 
+                (gtt_order_id, alpaca_order_id, symbol, filled_at, canceled_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (gtt_order_id, alpaca_order_id, symbol, filled_at, canceled_at, now))
+            
+            # Update GTT order's order_id field
+            gtt_order = self.get_gtt_order_by_id(gtt_order_id)
+            if gtt_order:
+                # Determine status based on filled_at/canceled_at
+                if filled_at:
+                    new_status = 'filled'
+                elif canceled_at:
+                    new_status = 'canceled'
+                else:
+                    new_status = gtt_order.status  # Keep existing status
+                
+                cursor.execute("""
+                    UPDATE gtt_orders 
+                    SET order_id = ?, status = ?, updated_at = ?
+                    WHERE id = ?
+                """, (alpaca_order_id, new_status, now, gtt_order_id))
+            
+            conn.commit()
+    
+    def get_gtt_order_by_alpaca_order_id(self, alpaca_order_id: str) -> Optional[GTTOrderRow]:
+        """Get GTT order linked to an Alpaca order ID"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT go.*, COALESCE(go.reinstated, 0) as reinstated, COALESCE(go.mode, 'auto') as mode
+                FROM gtt_orders go
+                JOIN completed_orders co ON go.id = co.gtt_order_id
+                WHERE co.alpaca_order_id = ?
+            """, (alpaca_order_id,))
+            row = cursor.fetchone()
+            if row:
+                row_dict = dict(row)
+                if 'reinstated' not in row_dict:
+                    row_dict['reinstated'] = False
+                if 'mode' not in row_dict:
+                    row_dict['mode'] = 'auto'
+                return GTTOrderRow(**row_dict)
+            return None
+    
+    def reorder_gtt_indices_by_price(self, symbol: str):
+        """
+        Reorder GTT order indices for a symbol based on price (high to low)
+        This is called when a new GTT order is inserted or price is edited
+        
+        Preserves all order properties (status, order_id, mode, etc.) - only updates order_index
+        Uses temporary negative indices to avoid UNIQUE constraint violations during reordering
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all orders for this symbol with all their properties, ordered by price DESC
+            cursor.execute("""
+                SELECT id, order_index, status, order_id, mode, amount, price, company,
+                       is_available_on_alpaca, asset_type, reinstated, filled_at
+                FROM gtt_orders 
+                WHERE symbol = ?
+                ORDER BY price DESC, id ASC
+            """, (symbol,))
+            
+            orders = cursor.fetchall()
+            now = datetime.utcnow().isoformat()
+            
+            # Step 1: Set all order_index values to temporary negative values to avoid conflicts
+            for idx, order_row in enumerate(orders):
+                cursor.execute("""
+                    UPDATE gtt_orders 
+                    SET order_index = ?, updated_at = ?
+                    WHERE id = ?
+                """, (-(idx + 1), now, order_row['id']))
+            
+            conn.commit()
+            
+            # Step 2: Now set them to the correct positive indices
+            for idx, order_row in enumerate(orders):
+                cursor.execute("""
+                    UPDATE gtt_orders 
+                    SET order_index = ?, updated_at = ?
+                    WHERE id = ?
+                """, (idx, now, order_row['id']))
+            
+            conn.commit()
+    
+    def create_manual_gtt_order(self, symbol: str, company: str, amount: float, 
+                                price: float, asset_type: str = 'stock',
+                                is_available_on_alpaca: bool = True) -> int:
+        """
+        Create a new manual GTT order and automatically reorder indices by price
+        
+        Returns the database ID of the created order
+        """
+        # Get current max index for this symbol to use as temporary index
+        # We'll reorder immediately after insertion
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT MAX(order_index) as max_index FROM gtt_orders WHERE symbol = ?
+            """, (symbol,))
+            row = cursor.fetchone()
+            temp_index = (row['max_index'] + 1) if row and row['max_index'] is not None else 0
+        
+        # Insert with temporary index (will be reordered immediately)
+        gtt_id = self.import_gtt_order(
+            symbol=symbol,
+            company=company,
+            order_index=temp_index,
+            amount=amount,
+            price=price,
+            is_available_on_alpaca=is_available_on_alpaca,
+            status='pending',
+            order_id=None,
+            asset_type=asset_type,
+            mode='manual'  # Manual orders default to manual mode
+        )
+        
+        # Reorder indices by price immediately
+        self.reorder_gtt_indices_by_price(symbol)
+        
+        return gtt_id
 

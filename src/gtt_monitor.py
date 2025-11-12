@@ -170,7 +170,7 @@ class CSVFileHandler(FileSystemEventHandler):
         self.last_modified[event.src_path] = current_time
         
         # Reload orders
-        console.print(f"\n[bold yellow]📝 CSV file changed:[/bold yellow] {filename}")
+        console.print(f"\n[bold yellow]CSV file changed:[/bold yellow] {filename}")
         console.print("[cyan]Reloading orders...[/cyan]\n")
         logger.info(f"CSV file changed: {event.src_path}, reloading orders")
         
@@ -326,8 +326,11 @@ class GTTOrderManager:
         
         # Locks to prevent concurrent order placement for the same symbol
         # This prevents race conditions where multiple threads/coroutines try to place the same order
-        self._order_placement_locks: Dict[str, threading.Lock] = {}
+        self._order_placement_locks: Dict[str, threading.RLock] = {}
         self._locks_lock = threading.Lock()  # Lock to protect the locks dictionary
+        
+        # GTT ordering pause flag - set to False to disable all GTT trigger checks and order placement
+        self.gtt_enabled = False  # PAUSED by default - set to True to enable
         
         # Initialize notification manager
         self.notification_manager = NotificationManager(self)
@@ -595,10 +598,11 @@ class GTTOrderManager:
                     logger.warning(f"{symbol}: No valid orders found, skipping")
                     continue
                 
-                # Preserve existing order statuses before deleting
+                # Preserve existing order statuses, modes, and order_ids before deleting
                 existing_orders = self.db.get_gtt_orders_by_symbol(symbol)
                 existing_statuses = {}
                 existing_order_ids = {}
+                existing_modes = {}
                 existing_current_index = self.db.get_current_order_index(symbol)
                 
                 for db_order in existing_orders:
@@ -607,15 +611,20 @@ class GTTOrderManager:
                         if abs(db_order.price - orders[db_order.order_index].price) < 0.01:
                             existing_statuses[db_order.order_index] = db_order.status
                             existing_order_ids[db_order.order_index] = db_order.order_id
+                            # Preserve mode if it exists
+                            if hasattr(db_order, 'mode') and db_order.mode:
+                                existing_modes[db_order.order_index] = db_order.mode
                 
                 # Delete existing orders for this symbol (CSV reload replaces all orders)
                 self.db.delete_symbol_orders(symbol)
                 
-                # Import orders to database, preserving statuses where possible
+                # Import orders to database, preserving statuses, modes, and order_ids where possible
                 for idx, order in enumerate(orders):
                     # Use preserved status if available, otherwise use order's status
                     preserved_status = existing_statuses.get(idx, order.status)
                     preserved_order_id = existing_order_ids.get(idx, order.order_id)
+                    # Preserve mode if it exists, otherwise default to 'auto'
+                    preserved_mode = existing_modes.get(idx, 'auto')
                     
                     self.db.import_gtt_order(
                         symbol=symbol,
@@ -626,7 +635,8 @@ class GTTOrderManager:
                         is_available_on_alpaca=is_available,
                         status=preserved_status,
                         order_id=preserved_order_id,
-                        asset_type=asset_type
+                        asset_type=asset_type,
+                        mode=preserved_mode
                     )
                 
                 # Preserve current_order_index if it's still valid, otherwise reset to 0
@@ -634,6 +644,13 @@ class GTTOrderManager:
                     self.db.update_current_order_index(symbol, existing_current_index)
                 else:
                     self.db.update_current_order_index(symbol, 0)
+                
+                # Clear loading status after CSV import completes
+                try:
+                    from .api_server import clear_loading_status
+                    clear_loading_status()
+                except ImportError:
+                    pass
                 
                 logger.info(f"Loaded {symbol} ({company}): {len(orders)} sequential orders")
         
@@ -655,22 +672,34 @@ class GTTOrderManager:
         total_orders = sum(len(ladder.orders) for ladder in ladders.values())
         logger.info(f"Loaded {len(ladders)} symbols with {total_orders} total orders")
         
-        # Don't clear loading status here - let it persist until sync_with_alpaca_orders completes
-        # This ensures frontend shows loading state during the entire initialization process
+        # Clear loading status after CSV import completes
+        try:
+            from .api_server import clear_loading_status
+            clear_loading_status()
+        except ImportError:
+            pass
     
     async def _handle_quote(self, quote):
         """Handle incoming quote data from WebSocket (async handler)"""
+        # Check if GTT ordering is paused
+        if not self.gtt_enabled:
+            return
+        
         try:
             symbol = quote.symbol
-            # Use bid price, or ask price as fallback
-            if hasattr(quote, 'bid_price') and quote.bid_price:
-                price = float(quote.bid_price)
-            elif hasattr(quote, 'ask_price') and quote.ask_price:
+            # CRITICAL FIX: For buy orders, use ASK price (what we pay), not BID price (what sellers get)
+            # BID < ASK, so using BID could trigger orders incorrectly when ASK is still above trigger
+            # Priority: ASK price first, then BID as fallback
+            if hasattr(quote, 'ask_price') and quote.ask_price:
                 price = float(quote.ask_price)
-            elif hasattr(quote, 'bid') and quote.bid:
-                price = float(quote.bid)
             elif hasattr(quote, 'ask') and quote.ask:
                 price = float(quote.ask)
+            elif hasattr(quote, 'bid_price') and quote.bid_price:
+                price = float(quote.bid_price)
+                logger.warning(f"Using BID price for {symbol} - ASK price not available. This may cause incorrect triggers!")
+            elif hasattr(quote, 'bid') and quote.bid:
+                price = float(quote.bid)
+                logger.warning(f"Using BID price for {symbol} - ASK price not available. This may cause incorrect triggers!")
             else:
                 return
             
@@ -686,25 +715,55 @@ class GTTOrderManager:
             if not current_order:
                 return  # All orders completed for this symbol
             
+            # Check mode (individual takes precedence over global)
+            db_orders = self.db.get_gtt_orders_by_symbol(normalized_symbol)
+            order_index = ladder.current_order_index
+            individual_mode = None
+            if order_index < len(db_orders):
+                individual_mode = db_orders[order_index].mode if hasattr(db_orders[order_index], 'mode') else None
+            
+            # Get global mode for this asset type
+            asset_type = ladder.asset_type if hasattr(ladder, 'asset_type') else 'stock'
+            global_mode = self.db.get_global_mode(asset_type=asset_type)
+            # Individual mode takes precedence when set
+            effective_mode = individual_mode if individual_mode in ['auto', 'manual'] else global_mode
+            
+            # Skip auto placement if mode is manual
+            if effective_mode == 'manual':
+                logger.debug(f"SKIP AUTO: {symbol} - Order {order_index + 1} is in manual mode")
+                return
+            
             # Only check trigger for the very first order in the sequence
             # After that, orders are auto-placed when previous order fills
             # When first order triggers, cascade through subsequent orders if price is below their triggers
             if current_order.status == "pending" and ladder.current_order_index == 0:
-                # First order: wait for trigger condition
-                if current_order.should_trigger(price):
-                    logger.info(f"TRIGGER: {symbol} price ${price:.2f} <= trigger ${current_order.price:.2f}")
-                    # Use cascade trigger to place all eligible orders
-                    self._place_order_with_cascade(ladder, symbol, price)
+                # First order: wait for trigger condition (price <= limit price)
+                if price <= current_order.price:  # Changed from should_trigger to direct comparison
+                    # CRITICAL: Use lock to prevent multiple simultaneous cascade triggers
+                    # This prevents duplicate orders when multiple WebSocket messages arrive rapidly
+                    order_lock = self._get_order_lock(normalized_symbol)
+                    with order_lock:
+                        # Double-check status after acquiring lock (might have changed)
+                        if current_order.status == "pending" and current_order.order_id is None:
+                            logger.info(f"TRIGGER: {symbol} price ${price:.2f} <= trigger ${current_order.price:.2f}")
+                            # Use cascade trigger to place all eligible orders
+                            self._place_order_with_cascade(ladder, normalized_symbol, price)
+                        else:
+                            logger.debug(f"SKIP TRIGGER: {symbol} - Order already placed (status: {current_order.status}, order_id: {current_order.order_id})")
             elif current_order.status == "pending" and ladder.current_order_index > 0:
-                # Subsequent orders: should have been auto-placed, but if not, place them now
-                # (This handles edge cases where auto-place might have failed)
-                # BUT: Check if order_id exists to prevent duplicates
-                if current_order.order_id is None:
-                    logger.info(f"AUTO-PLACE: {symbol} - Order {ladder.current_order_index + 1} "
-                              f"(was pending, placing now)")
-                    self._place_order(ladder, current_order, symbol)
+                # Subsequent orders: check if price <= limit price before auto-placing
+                if price <= current_order.price:
+                    # Subsequent orders: should have been auto-placed, but if not, place them now
+                    # (This handles edge cases where auto-place might have failed)
+                    # BUT: Check if order_id exists to prevent duplicates
+                    if current_order.order_id is None:
+                        logger.info(f"AUTO-PLACE: {symbol} - Order {ladder.current_order_index + 1} "
+                                  f"(price ${price:.2f} <= limit ${current_order.price:.2f}, placing now)")
+                        self._place_order(ladder, current_order, symbol)
+                    else:
+                        logger.debug(f"SKIP AUTO-PLACE: {symbol} - Order {ladder.current_order_index + 1} already has order_id: {current_order.order_id}")
                 else:
-                    logger.debug(f"SKIP AUTO-PLACE: {symbol} - Order {ladder.current_order_index + 1} already has order_id: {current_order.order_id}")
+                    logger.debug(f"SKIP AUTO-PLACE: {symbol} - Order {ladder.current_order_index + 1} price ${price:.2f} > limit ${current_order.price:.2f}")
             
         except Exception as e:
             logger.error(f"Error handling quote: {e}")
@@ -1013,7 +1072,7 @@ class GTTOrderManager:
             if fields:
                 fields_table = '<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 20px 0;">'
                 for field in fields:
-                    field_name = field.get('name', '').replace('💰', '').replace('📊', '').replace('🆔', '').replace('📈', '').replace('💵', '').strip()
+                    field_name = field.get('name', '').strip()
                     field_value = field.get('value', '').replace('**', '').replace('`', '')
                     fields_table += f"""
                                 <tr>
@@ -1129,12 +1188,69 @@ class GTTOrderManager:
             logger.error(f"Error checking order status for {order_id}: {e}")
             return None
     
-    def _get_order_lock(self, symbol: str) -> threading.Lock:
-        """Get or create a lock for a specific symbol to prevent concurrent order placement"""
+    def _get_order_lock(self, symbol: str) -> threading.RLock:
+        """Get or create a reentrant lock for a specific symbol to prevent concurrent order placement"""
         with self._locks_lock:
             if symbol not in self._order_placement_locks:
-                self._order_placement_locks[symbol] = threading.Lock()
+                self._order_placement_locks[symbol] = threading.RLock()
             return self._order_placement_locks[symbol]
+    
+    def _check_existing_alpaca_order(self, symbol: str, price: float, quantity: float, side: str = "buy") -> Optional[str]:
+        """
+        Check if an identical order already exists in Alpaca (active or pending).
+        Returns order_id if found, None otherwise.
+        
+        This prevents duplicate orders when WebSocket messages arrive rapidly.
+        """
+        try:
+            # Get active orders from Alpaca
+            from alpaca.trading.requests import GetOrdersRequest
+            try:
+                from alpaca.trading.enums import QueryOrderStatus
+                orders_request = GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=100)
+            except ImportError:
+                orders_request = GetOrdersRequest(limit=100)
+            
+            alpaca_orders = self.trading_client.get_orders(orders_request)
+            
+            # Check for matching order: same symbol, price, quantity, and side
+            for alpaca_order in alpaca_orders:
+                # Normalize symbols for comparison
+                alpaca_symbol = alpaca_order.symbol
+                normalized_alpaca = alpaca_symbol.replace('/USD', '') if '/USD' in alpaca_symbol else alpaca_symbol
+                normalized_order = symbol.replace('/USD', '') if '/USD' in symbol else symbol
+                
+                # Check symbol match
+                if normalized_alpaca != normalized_order and alpaca_symbol != symbol:
+                    continue
+                
+                # Check side match
+                order_side = alpaca_order.side.value if hasattr(alpaca_order.side, 'value') else str(alpaca_order.side)
+                if order_side.lower() != side.lower():
+                    continue
+                
+                # Check price match (allow small floating point differences)
+                order_price = float(alpaca_order.limit_price) if alpaca_order.limit_price else None
+                if order_price is None:
+                    continue
+                if abs(order_price - price) > 0.0001:  # Allow tiny differences due to float precision
+                    continue
+                
+                # Check quantity match (allow small differences)
+                order_qty = float(alpaca_order.qty) if alpaca_order.qty else 0
+                if abs(order_qty - quantity) > 0.0001:  # Allow tiny differences
+                    continue
+                
+                # Found matching order!
+                logger.info(f"DUPLICATE DETECTED: {symbol} - Found existing Alpaca order {alpaca_order.id} "
+                           f"(Limit: ${price:.2f}, Qty: {quantity}, Side: {side})")
+                return alpaca_order.id
+                
+        except Exception as e:
+            # If check fails, log but don't block order placement
+            logger.warning(f"Error checking for existing Alpaca orders for {symbol}: {e}")
+        
+        return None
     
     def _place_order(self, ladder: SymbolLadder, order: SequentialOrder, symbol: str):
         """Place order when trigger condition is met"""
@@ -1148,6 +1264,38 @@ class GTTOrderManager:
                 if order.order_id:
                     logger.debug(f"SKIP PLACE: {symbol} - Order already placed (status: {order.status}, order_id: {order.order_id})")
                 return  # Already placed or not pending
+            
+            # CRITICAL: Check Alpaca for existing identical orders before placing
+            # This prevents duplicates when WebSocket messages arrive rapidly
+            order_symbol = symbol
+            if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
+                order_symbol = f"{symbol}/USD"
+            
+            existing_order_id = self._check_existing_alpaca_order(
+                order_symbol, 
+                order.price, 
+                order.amount, 
+                "buy"
+            )
+            
+            if existing_order_id:
+                # Found existing order in Alpaca - link to it instead of placing new one
+                logger.info(f"LINKING TO EXISTING: {symbol} - Linking to existing Alpaca order {existing_order_id} "
+                           f"instead of placing duplicate")
+                order.order_id = existing_order_id
+                # Get status from Alpaca
+                try:
+                    alpaca_order = self.trading_client.get_order_by_id(existing_order_id)
+                    alpaca_status = alpaca_order.status.value if hasattr(alpaca_order.status, 'value') else str(alpaca_order.status)
+                    order.status = alpaca_status.lower() if alpaca_status else "placed"
+                except Exception:
+                    order.status = "placed"
+                
+                # Update database
+                order_index = ladder.orders.index(order)
+                self.db.update_order_status(symbol, order_index, order.status, order.order_id)
+                self._invalidate_ladders_cache()
+                return  # Don't place duplicate order
             
             try:
                 # Find the order index in the ladder
@@ -1175,26 +1323,26 @@ class GTTOrderManager:
                     
                     # Send email notification for insufficient buying power
                     self._send_email_notification(
-                        title="⚠️ Insufficient Buying Power",
+                        title="Insufficient Buying Power",
                         description=f"**{symbol}** - Order {order_num} could not be placed due to insufficient buying power.",
                         fields=[
-                            {"name": "💰 Required", "value": f"${order_value:.2f}", "inline": True},
-                            {"name": "💵 Available", "value": f"${buying_power:.2f}", "inline": True},
-                            {"name": "📊 Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
-                            {"name": "📈 Order Details", "value": f"Limit: ${order.price:.2f}, Qty: {order.amount} shares", "inline": False},
+                            {"name": "Required", "value": f"${order_value:.2f}", "inline": True},
+                            {"name": "Available", "value": f"${buying_power:.2f}", "inline": True},
+                            {"name": "Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
+                            {"name": "Order Details", "value": f"Limit: ${order.price:.2f}, Qty: {order.amount} shares", "inline": False},
                         ],
                         footer_text=f"{ladder.company} • Order {order_num}/{total_orders} • Action Required"
                     )
                     
                     # Send Discord notification
                     self._send_discord_notification(
-                        title="⚠️ Insufficient Buying Power",
+                        title="Insufficient Buying Power",
                         description=f"**{symbol}** - Order {order_num} could not be placed",
                         color=0xff9900,  # Orange
                         fields=[
-                            {"name": "💰 Required", "value": f"${order_value:.2f}", "inline": True},
-                            {"name": "💵 Available", "value": f"${buying_power:.2f}", "inline": True},
-                            {"name": "📊 Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
+                            {"name": "Required", "value": f"${order_value:.2f}", "inline": True},
+                            {"name": "Available", "value": f"${buying_power:.2f}", "inline": True},
+                            {"name": "Shortfall", "value": f"${order_value - buying_power:.2f}", "inline": True},
                         ],
                         footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
                     )
@@ -1240,21 +1388,21 @@ class GTTOrderManager:
                 
                 # Send Discord notification for order placed
                 self._send_discord_notification(
-                    title="✅ Order Placed",
+                    title="Order Placed",
                     description=f"**{symbol}** - Order {order_num} of {total_orders} has been placed",
                     color=0x00ff00,  # Green (will be converted to decimal)
                     fields=[
-                        {"name": "💰 Limit Price", "value": f"${order.price:.2f}", "inline": True},
-                        {"name": "📊 Quantity", "value": f"{order.amount} shares", "inline": True},
-                        {"name": "🆔 Order ID", "value": f"`{placed_order.id[:8]}...`", "inline": False},
-                        {"name": "📈 Status", "value": "**Placed** - Waiting for execution", "inline": False},
+                        {"name": "Limit Price", "value": f"${order.price:.2f}", "inline": True},
+                        {"name": "Quantity", "value": f"{order.amount} shares", "inline": True},
+                        {"name": "Order ID", "value": f"`{placed_order.id[:8]}...`", "inline": False},
+                        {"name": "Status", "value": "**Placed** - Waiting for execution", "inline": False},
                     ],
                     footer_text=f"{ladder.company} • Order {order_num}/{total_orders}"
                 )
                 
                 # Send email notification for order placed
                 self._send_email_notification(
-                    title="✅ Order Placed",
+                    title="Order Placed",
                     description=f"{symbol} - Order {order_num} of {total_orders} has been placed",
                     fields=[
                         {"name": "Limit Price", "value": f"${order.price:.2f}"},
@@ -1286,6 +1434,8 @@ class GTTOrderManager:
         Place orders with cascade trigger logic.
         When Order #1 triggers, check if price is below Order #2, #3, etc. and place all eligible orders.
         This maximizes execution speed when price drops below multiple trigger levels.
+        
+        NOTE: This function should be called WITHIN a lock to prevent concurrent execution.
         """
         total_orders = len(ladder.orders)
         placed_count = 0
@@ -1298,7 +1448,8 @@ class GTTOrderManager:
             order = ladder.orders[idx]
             
             # Skip if order is already placed or filled
-            if order.status != "pending":
+            # CRITICAL: Check both status AND order_id to prevent duplicates
+            if order.status != "pending" or order.order_id is not None:
                 # If order is already placed/filled, advance index and continue
                 if idx == ladder.current_order_index:
                     ladder.advance_to_next_order()
@@ -1311,7 +1462,9 @@ class GTTOrderManager:
                 # First order: already verified it should trigger, place it
                 logger.info(f"CASCADE TRIGGER: {symbol} - Placing Order {idx + 1} at ${order.price:.2f} (price ${current_price:.2f} <= trigger)")
                 self._place_order(ladder, order, symbol)
-                placed_count += 1
+                # Check if order was actually placed (might have been skipped due to duplicate check)
+                if order.order_id is not None:
+                    placed_count += 1
                 
                 # Advance to next order for cascade check
                 if idx < total_orders - 1:
@@ -1321,7 +1474,9 @@ class GTTOrderManager:
                 if order.should_trigger(current_price):
                     logger.info(f"CASCADE TRIGGER: {symbol} - Price ${current_price:.2f} <= Order {idx + 1} trigger ${order.price:.2f}, placing immediately")
                     self._place_order(ladder, order, symbol)
-                    placed_count += 1
+                    # Check if order was actually placed (might have been skipped due to duplicate check)
+                    if order.order_id is not None:
+                        placed_count += 1
                     
                     # Advance to next order for cascade check
                     if idx < total_orders - 1:
@@ -1335,65 +1490,67 @@ class GTTOrderManager:
             logger.info(f"CASCADE COMPLETE: {symbol} - Placed {placed_count} orders in cascade (price ${current_price:.2f} was below {placed_count} trigger levels)")
         elif placed_count == 1:
             logger.info(f"CASCADE COMPLETE: {symbol} - Placed 1 order (only Order #1 trigger was met)")
+        elif placed_count == 0:
+            logger.warning(f"CASCADE COMPLETE: {symbol} - No orders placed (all may have been duplicates or already placed)")
     
     def _notify_order_status_change(self, symbol: str, ladder: SymbolLadder, order: SequentialOrder, 
                                      old_status: str, new_status: str, order_num: int, total_orders: int):
         """Send notifications for any order status change"""
         status_messages = {
             "filled": {
-                "title": "🎯 Order Filled",
+                "title": "Order Filled",
                 "description": f"{symbol} - Order {order_num} of {total_orders} has been **executed**",
                 "color": 0xff9900,  # Orange
-                "email_title": "🎯 Order Filled",
+                "email_title": "Order Filled",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} has been executed"
             },
             "partially_filled": {
-                "title": "📊 Order Partially Filled",
+                "title": "Order Partially Filled",
                 "description": f"{symbol} - Order {order_num} of {total_orders} is **partially executed**",
                 "color": 0xffaa00,  # Yellow-orange
-                "email_title": "📊 Order Partially Filled",
+                "email_title": "Order Partially Filled",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} is partially executed"
             },
             "cancelled": {
-                "title": "❌ Order Cancelled",
+                "title": "Order Cancelled",
                 "description": f"{symbol} - Order {order_num} of {total_orders} has been **cancelled**",
                 "color": 0xff0000,  # Red
-                "email_title": "❌ Order Cancelled",
+                "email_title": "Order Cancelled",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} has been cancelled"
             },
             "expired": {
-                "title": "⏰ Order Expired",
+                "title": "Order Expired",
                 "description": f"{symbol} - Order {order_num} of {total_orders} has **expired**",
                 "color": 0xff6600,  # Orange-red
-                "email_title": "⏰ Order Expired",
+                "email_title": "Order Expired",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} has expired"
             },
             "rejected": {
-                "title": "🚫 Order Rejected",
+                "title": "Order Rejected",
                 "description": f"{symbol} - Order {order_num} of {total_orders} was **rejected**",
                 "color": 0xcc0000,  # Dark red
-                "email_title": "🚫 Order Rejected",
+                "email_title": "Order Rejected",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} was rejected"
             },
             "pending_cancel": {
-                "title": "⏳ Order Pending Cancel",
+                "title": "Order Pending Cancel",
                 "description": f"{symbol} - Order {order_num} of {total_orders} is **pending cancellation**",
                 "color": 0xffaa00,  # Yellow
-                "email_title": "⏳ Order Pending Cancel",
+                "email_title": "Order Pending Cancel",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} is pending cancellation"
             },
             "pending_replace": {
-                "title": "🔄 Order Pending Replace",
+                "title": "Order Pending Replace",
                 "description": f"{symbol} - Order {order_num} of {total_orders} is **pending replacement**",
                 "color": 0x0099ff,  # Blue
-                "email_title": "🔄 Order Pending Replace",
+                "email_title": "Order Pending Replace",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} is pending replacement"
             },
             "replaced": {
-                "title": "🔄 Order Replaced",
+                "title": "Order Replaced",
                 "description": f"{symbol} - Order {order_num} of {total_orders} has been **replaced**",
                 "color": 0x0099ff,  # Blue
-                "email_title": "🔄 Order Replaced",
+                "email_title": "Order Replaced",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} has been replaced"
             }
         }
@@ -1403,24 +1560,24 @@ class GTTOrderManager:
         if not msg_info:
             # Generic status change notification
             msg_info = {
-                "title": f"📝 Order Status Changed",
+                "title": f"Order Status Changed",
                 "description": f"{symbol} - Order {order_num} of {total_orders} status changed: {old_status} → {new_status}",
                 "color": 0x666666,  # Gray
-                "email_title": f"📝 Order Status Changed",
+                "email_title": f"Order Status Changed",
                 "email_desc": f"{symbol} - Order {order_num} of {total_orders} status changed: {old_status} → {new_status}"
             }
         
         # Common fields for all notifications
         fields = [
-            {"name": "💰 Limit Price", "value": f"${order.price:.2f}", "inline": True},
-            {"name": "📊 Quantity", "value": f"{order.amount} shares", "inline": True},
-            {"name": "🆔 Order ID", "value": f"`{order.order_id[:8]}...`" if order.order_id else "N/A", "inline": False},
-            {"name": "📈 Status", "value": f"**{old_status}** → **{new_status}**", "inline": False},
+            {"name": "Limit Price", "value": f"${order.price:.2f}", "inline": True},
+            {"name": "Quantity", "value": f"{order.amount} shares", "inline": True},
+            {"name": "Order ID", "value": f"`{order.order_id[:8]}...`" if order.order_id else "N/A", "inline": False},
+            {"name": "Status", "value": f"**{old_status}** → **{new_status}**", "inline": False},
         ]
         
         # Add total value for filled/partially filled orders
         if new_status.lower() in ["filled", "partially_filled"]:
-            fields.insert(2, {"name": "💵 Total Value", "value": f"${order.price * order.amount:.2f}", "inline": True})
+            fields.insert(2, {"name": "Total Value", "value": f"${order.price * order.amount:.2f}", "inline": True})
         
         # Send Discord notification
         self._send_discord_notification(
@@ -1544,41 +1701,44 @@ class GTTOrderManager:
                     if idx == ladder.current_order_index:
                         ladder.advance_to_next_order()
                         
-                        # Immediately place the next order (don't wait for trigger)
+                        # Check mode before auto-placing next order
+                        db_orders = self.db.get_gtt_orders_by_symbol(symbol)
+                        next_order_index = ladder.current_order_index
+                        individual_mode = None
+                        if next_order_index < len(db_orders):
+                            individual_mode = db_orders[next_order_index].mode if hasattr(db_orders[next_order_index], 'mode') else None
+                        
+                        # Get global mode for this asset type
+                        asset_type = ladder.asset_type if hasattr(ladder, 'asset_type') else 'stock'
+                        global_mode = self.db.get_global_mode(asset_type=asset_type)
+                        effective_mode = individual_mode if individual_mode in ['auto', 'manual'] else global_mode
+                        
+                        # Immediately place the next order (don't wait for trigger) - only if auto mode
                         next_order = ladder.get_current_order()
                         if next_order and next_order.status == "pending" and next_order.order_id is None:
-                            next_order_num = ladder.current_order_index + 1
-                            logger.info(f"AUTO-PLACE: {symbol} - Immediately placing Order {next_order_num} "
-                                      f"at limit price ${next_order.price:.2f}")
-                            
-                            # Send Discord notification for next order coming up
-                            self._send_discord_notification(
-                                title="⏭️ Next Order Queued",
-                                description=f"**{symbol}** - Order {next_order_num} of {total_orders} will be placed immediately",
-                                color=0x0099ff,  # Blue
-                                fields=[
-                                    {"name": "💰 Next Limit Price", "value": f"${next_order.price:.2f}", "inline": True},
-                                    {"name": "📊 Next Quantity", "value": f"{next_order.amount} shares", "inline": True},
-                                    {"name": "💵 Estimated Value", "value": f"${next_order.price * next_order.amount:.2f}", "inline": True},
-                                    {"name": "⚡ Status", "value": "**Queued** - Will place automatically", "inline": False},
-                                ],
-                                footer_text=f"{ladder.company} • Order {next_order_num}/{total_orders} ready"
-                            )
-                            
-                            # Send email notification for next order
-                            self._send_email_notification(
-                                title="⏭️ Next Order Queued",
-                                description=f"{symbol} - Order {next_order_num} of {total_orders} will be placed immediately",
-                                fields=[
-                                    {"name": "Next Limit Price", "value": f"${next_order.price:.2f}"},
-                                    {"name": "Next Quantity", "value": f"{next_order.amount} shares"},
-                                    {"name": "Estimated Value", "value": f"${next_order.price * next_order.amount:.2f}"},
-                                    {"name": "Status", "value": "Queued - Will place automatically"},
-                                ],
-                                footer_text=f"{ladder.company} • Order {next_order_num}/{total_orders} ready"
-                            )
-                            
-                            self._place_order(ladder, next_order, symbol)
+                            if effective_mode == 'auto':
+                                next_order_num = ladder.current_order_index + 1
+                                logger.info(f"AUTO-PLACE: {symbol} - Immediately placing Order {next_order_num} "
+                                          f"at limit price ${next_order.price:.2f}")
+                                
+                                # Send Discord notification for next order coming up
+                                self._send_discord_notification(
+                                    title="Next Order Queued",
+                                    description=f"**{symbol}** - Order {next_order_num} of {total_orders} will be placed immediately",
+                                    color=0x0099ff,  # Blue
+                                    fields=[
+                                        {"name": "Next Limit Price", "value": f"${next_order.price:.2f}", "inline": True},
+                                        {"name": "Next Quantity", "value": f"{next_order.amount} shares", "inline": True},
+                                        {"name": "Estimated Value", "value": f"${next_order.price * next_order.amount:.2f}", "inline": True},
+                                        {"name": "Status", "value": "**Queued** - Will place automatically", "inline": False},
+                                    ],
+                                    footer_text=f"{ladder.company} • Order {next_order_num}/{total_orders} ready"
+                                )
+                                
+                                # Place the order
+                                self._place_order(ladder, next_order, symbol)
+                            else:
+                                logger.info(f"SKIP AUTO-PLACE: {symbol} - Order {next_order_index + 1} is in manual mode")
                 
                 elif alpaca_status in ["cancelled", "expired", "rejected"]:
                     # Log detailed information about why order expired/cancelled
@@ -1822,15 +1982,12 @@ class GTTOrderManager:
                 quotes = self.data_client.get_stock_latest_quote(request)
                 
                 for symbol, quote in quotes.items():
-                    # Use ask_price if available (more current), otherwise bid_price
-                    if quote.ask_price and quote.bid_price:
-                        # Use mid price for better accuracy
-                        mid_price = (float(quote.ask_price) + float(quote.bid_price)) / 2
-                        prices[symbol] = mid_price
-                    elif quote.ask_price:
+                    # For buy orders, use ASK price (what we pay), not BID or mid price
+                    if quote.ask_price:
                         prices[symbol] = float(quote.ask_price)
                     elif quote.bid_price:
                         prices[symbol] = float(quote.bid_price)
+                        logger.warning(f"Using BID price for {symbol} - ASK price not available (fallback polling)")
             except Exception as e:
                 logger.error(f"Error fetching stock prices: {e}")
         
@@ -1844,14 +2001,12 @@ class GTTOrderManager:
                 for crypto_symbol_alpaca, quote in quotes.items():
                     base_symbol = crypto_symbol_map.get(crypto_symbol_alpaca)
                     if base_symbol:
-                        if quote.ask_price and quote.bid_price:
-                            # Use mid price for better accuracy
-                            mid_price = (float(quote.ask_price) + float(quote.bid_price)) / 2
-                            prices[base_symbol] = mid_price
-                        elif quote.ask_price:
+                        # For buy orders, use ASK price (what we pay), not BID or mid price
+                        if quote.ask_price:
                             prices[base_symbol] = float(quote.ask_price)
                         elif quote.bid_price:
                             prices[base_symbol] = float(quote.bid_price)
+                            logger.warning(f"Using BID price for {base_symbol} - ASK price not available (fallback polling)")
             except Exception as e:
                 logger.error(f"Error fetching crypto prices: {e}")
                 # Fallback: try individual symbol lookups
@@ -1862,13 +2017,12 @@ class GTTOrderManager:
                         quotes = self.crypto_data_client.get_crypto_latest_quote(request)
                         if crypto_symbol_alpaca in quotes:
                             quote = quotes[crypto_symbol_alpaca]
-                            if quote.ask_price and quote.bid_price:
-                                mid_price = (float(quote.ask_price) + float(quote.bid_price)) / 2
-                                prices[base_symbol] = mid_price
-                            elif quote.ask_price:
+                            # For buy orders, use ASK price (what we pay), not BID or mid price
+                            if quote.ask_price:
                                 prices[base_symbol] = float(quote.ask_price)
                             elif quote.bid_price:
                                 prices[base_symbol] = float(quote.bid_price)
+                                logger.warning(f"Using BID price for {base_symbol} - ASK price not available (fallback polling)")
                     except Exception as e:
                         logger.debug(f"Could not get price for {crypto_symbol_alpaca}: {e}")
         
@@ -1893,6 +2047,10 @@ class GTTOrderManager:
     
     def _check_triggers_from_prices(self):
         """Check triggers using current prices (fallback when WebSocket isn't receiving quotes)"""
+        # Check if GTT ordering is paused
+        if not self.gtt_enabled:
+            return
+        
         try:
             prices = self.get_current_prices()
             if not prices:
@@ -1934,6 +2092,11 @@ class GTTOrderManager:
     
     def check_triggers_polling(self):
         """Fallback: Poll prices and check triggers (if WebSocket unavailable)"""
+        # Check if GTT ordering is paused
+        if not self.gtt_enabled:
+            logger.info("GTT ordering is PAUSED - skipping trigger checks")
+            return
+        
         # Configurable polling interval (default: 60 seconds to reduce API calls)
         poll_interval = int(os.getenv('POLL_INTERVAL_SECONDS', '60'))
         
@@ -2056,45 +2219,11 @@ def main():
     api_port = int(os.getenv('PORT_API', '8080'))
     console.print(f"[green]✓[/green] API server started on [cyan]http://localhost:{api_port}[/cyan]")
     
-    # Load orders from CSV files in data/ directory (only if database is empty)
-    # Use gtt-live-stocks-etfs.csv and gtt-live-crypto.csv
-    # If database already has orders, skip CSV loading for faster startup
+    # CSV auto-loading is disabled - orders must be uploaded via UI
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(project_root, 'data')
     
-    # Check if database already has orders
-    db_has_orders = manager.db.has_orders()
-    
-    if db_has_orders:
-        console.print(f"[cyan]ℹ[/cyan] Database already has orders. Skipping CSV loading for faster startup.")
-        console.print(f"[cyan]ℹ[/cyan] To reload from CSV, use the upload feature in the UI or modify CSV files (auto-reload enabled).")
-    else:
-        # Database is empty - load from CSV files (first-time setup)
-        stocks_csv = os.path.join(data_dir, 'gtt-live-stocks-etfs.csv')
-        crypto_csv = os.path.join(data_dir, 'gtt-live-crypto.csv')
-        
-        if stocks_csv and os.path.exists(stocks_csv):
-            try:
-                from .api_server import set_loading_status
-                set_loading_status(True, "Loading stocks/ETFs", 0, 0, "", f"Loading from {os.path.basename(stocks_csv)}...", clear_symbols=True, force_show=True)
-            except ImportError:
-                pass
-            manager.load_orders_from_csv(stocks_csv, asset_type='stock')
-            console.print(f"[green]✓[/green] Loaded stocks/ETFs from [cyan]{os.path.basename(stocks_csv)}[/cyan]")
-        elif stocks_csv:
-            console.print(f"[yellow]⚠[/yellow] CSV file not found: {stocks_csv}")
-        
-        if crypto_csv and os.path.exists(crypto_csv):
-            try:
-                from .api_server import set_loading_status
-                set_loading_status(True, "Loading crypto", 0, 0, "", f"Loading from {os.path.basename(crypto_csv)}...", clear_symbols=True, force_show=True)
-            except ImportError:
-                pass
-            console.print(f"[cyan]ℹ[/cyan] Loading crypto orders from [cyan]{os.path.basename(crypto_csv)}[/cyan]")
-            manager.load_orders_from_csv(crypto_csv, asset_type='crypto')
-            console.print(f"[green]✓[/green] Loaded crypto from [cyan]{os.path.basename(crypto_csv)}[/cyan]")
-        elif crypto_csv:
-            console.print(f"[yellow]⚠[/yellow] CSV file not found: {crypto_csv}")
+    console.print(f"[cyan]ℹ[/cyan] CSV auto-loading disabled. Upload orders via UI.")
     
     # Sync with existing Alpaca orders (in case orders were placed outside the monitor)
     try:
@@ -2130,17 +2259,11 @@ def main():
     console.print("\n")
     
     if total_symbols == 0:
-        console.print("[bold red]ERROR:[/bold red] No orders loaded. Please check CSV files.")
-        return
+        console.print("[bold yellow]ℹ[/bold yellow] No orders loaded. Upload CSV files via UI to add orders.")
+        # Don't return - allow the system to start even with no orders
     
-    # Start CSV file watcher (watchdog)
-    csv_handler = CSVFileHandler(manager, data_dir)
-    observer = Observer()
-    observer.schedule(csv_handler, data_dir, recursive=False)
-    observer.start()
-    console.print(f"[green]✓[/green] CSV file watcher started on [cyan]{data_dir}[/cyan]")
-    console.print(f"[cyan]ℹ[/cyan] Watching: [yellow]gtt-live-stocks-etfs.csv[/yellow] and [yellow]gtt-live-crypto.csv[/yellow]")
-    logger.info(f"CSV file watcher started on {data_dir}")
+    # CSV file watcher is disabled - orders must be uploaded via UI
+    console.print(f"[cyan]ℹ[/cyan] CSV file watcher disabled. Upload orders via UI.")
     
     # Set up scheduled jobs for daily and weekly summaries
     try:
@@ -2186,10 +2309,16 @@ def main():
         logger.error(f"Error starting monitor: {e}", exc_info=True)
         console.print(f"[bold red]Error starting monitor:[/bold red] {e}")
         manager.check_triggers_polling()
-    finally:
-        # Stop observer on exit
-        observer.stop()
-        observer.join()
+    
+    # If no orders, keep process alive by waiting (Flask server runs in daemon thread)
+    if len(manager.ladders) == 0:
+        logger.info("No orders to monitor. Server will continue running for API access.")
+        # Keep the main thread alive so Flask server continues running
+        try:
+            while True:
+                time.sleep(60)  # Sleep and check periodically
+        except KeyboardInterrupt:
+            console.print("\n[bold yellow]Shutting down...[/bold yellow]")
 
 
 if __name__ == '__main__':

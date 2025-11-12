@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import useSWR from "swr"
-import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
+import { ChartContainer } from "@/components/ui/chart"
 import { LineChart, Line, XAxis, YAxis, ReferenceLine } from "recharts"
 import { Button } from "@/components/ui/button"
 import { Loader2 } from "lucide-react"
@@ -15,8 +15,10 @@ interface StockChartProps {
   height?: number
   enabled?: boolean // Only fetch when enabled (accordion is open)
   highlightedPrice?: number | null // Price to highlight in chart
+  highlightedOrderIndex?: number | null // Order index to highlight (from table hover)
   onPriceHover?: (price: number | null) => void // Callback when hovering over price labels
   onPriceClick?: (price: number) => void // Callback when clicking price labels
+  onOrderHover?: (orderIndex: number | null) => void // Callback when hovering over order lines
 }
 
 interface GTTOrder {
@@ -48,7 +50,7 @@ const chartConfig = {
   },
 }
 
-export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true, highlightedPrice = null, onPriceHover, onPriceClick }: StockChartProps) {
+export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true, highlightedPrice = null, highlightedOrderIndex = null, onPriceHover, onPriceClick, onOrderHover }: StockChartProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>("1M")
   const [hoveredPrice, setHoveredPrice] = useState<number | null>(null)
   
@@ -232,30 +234,23 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true, h
                 </linearGradient>
               </defs>
               
-              {/* Evenly spaced horizontal gridlines */}
-              {yTicks.map((tick, idx) => (
-                <ReferenceLine
-                  key={`h-grid-${idx}`}
-                  y={tick}
-                  stroke="oklch(0.25 0 0)"
-                  strokeOpacity={0.4}
-                  strokeDasharray="none"
-                />
-              ))}
+              {/* Skip horizontal gridlines - GTT order lines are sufficient */}
               
-              {/* Evenly spaced vertical gridlines */}
+              {/* Evenly spaced vertical gridlines - match X-axis dates */}
               {xTicks.map((tick, idx) => {
                 // Find closest data point for this timestamp
                 const closestDataPoint = chartData.reduce((prev: any, curr: any) => 
                   Math.abs(curr.timestamp - tick) < Math.abs(prev.timestamp - tick) ? curr : prev
                 )
+                // Use the date key that matches X-axis dataKey
                 return (
                   <ReferenceLine
                     key={`v-grid-${idx}`}
                     x={closestDataPoint.date}
-                    stroke="oklch(0.25 0 0)"
-                    strokeOpacity={0.15}
-                    strokeDasharray="1 3"
+                    stroke="oklch(0.35 0 0)"
+                    strokeOpacity={0.7}
+                    strokeDasharray="2 4"
+                    strokeWidth={1.5}
                   />
                 )
               })}
@@ -264,20 +259,47 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true, h
               {gttOrders.map((order, idx) => {
                 const isHighlighted = highlightedPrice !== null && Math.abs(order.price - highlightedPrice) < 0.01
                 const isHovered = hoveredPrice !== null && Math.abs(order.price - hoveredPrice) < 0.01
-                const shouldHighlight = isHighlighted || isHovered
+                const isOrderHighlighted = highlightedOrderIndex !== null && order.order_index === highlightedOrderIndex
+                const shouldHighlight = isHighlighted || isHovered || isOrderHighlighted
+                
+                // Determine line style based on status
+                const statusLower = order.status.toLowerCase()
+                const isPending = statusLower === "pending"
+                const isFilled = statusLower === "filled"
+                const isActive = !isPending && !isFilled // Active/placed orders (new, accepted, partially_filled, etc.)
+                
+                // Pending: grey solid line
+                // Active/placed: yellow dotted line (thinner)
+                // Filled: green solid line
+                const strokeColor = isPending 
+                  ? "oklch(0.5 0 0)" // Grey for pending
+                  : isFilled 
+                    ? "oklch(0.7 0.2 145)" // Green for filled
+                    : "oklch(0.85 0.15 95)" // Yellow for active/placed
+                
+                const strokeDashArray = isPending || isFilled ? "none" : "4 4" // Solid for pending/filled, dotted for active
+                const strokeWidth = shouldHighlight 
+                  ? (isPending ? 2.5 : isFilled ? 2.5 : 2) // Thicker when highlighted
+                  : (isPending ? 1.5 : isFilled ? 1.5 : 1) // Thinner when not highlighted
                 
                 return (
                   <ReferenceLine
                     key={`gtt-order-${order.order_index}-${idx}`}
                     y={order.price}
-                    stroke={getOrderColor(order.status)}
-                    strokeWidth={shouldHighlight ? (order.is_current ? 3.5 : 2.5) : (order.is_current ? 2.5 : 1.5)}
-                    strokeOpacity={shouldHighlight ? 1.0 : (order.is_current ? 0.8 : 0.6)}
-                    strokeDasharray={order.status === "pending" ? "4 4" : "none"}
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    strokeOpacity={shouldHighlight ? 1.0 : (isPending ? 0.7 : isFilled ? 0.8 : 0.6)}
+                    strokeDasharray={strokeDashArray}
+                    onMouseEnter={() => {
+                      onOrderHover?.(order.order_index)
+                    }}
+                    onMouseLeave={() => {
+                      onOrderHover?.(null)
+                    }}
                     label={{
                       value: formatPrice(order.price),
                       position: "right",
-                      fill: getOrderColor(order.status),
+                      fill: strokeColor,
                       fontSize: shouldHighlight ? 12 : 10,
                       fontWeight: shouldHighlight ? 600 : 400,
                       offset: 5,
@@ -343,60 +365,13 @@ export function StockChart({ symbol, apiBaseUrl, height = 200, enabled = true, h
                 allowDataOverflow={false}
                 ticks={yTicks}
               />
-              <ChartTooltip
-                content={({ active, payload }) => {
-                  if (!active || !payload || !payload.length) return null
-                  
-                  const data = payload[0].payload
-                  const value = payload[0].value as number
-                  
-                  return (
-                    <div className="bg-card border border-border rounded-lg shadow-lg px-3 py-2 min-w-[140px]">
-                      <div className="space-y-1">
-                        <div className="font-semibold text-foreground text-sm">
-                          {data.fullDate || data.date}
-                        </div>
-                        {timeframe === "1D" && data.time && (
-                          <div className="text-xs text-muted-foreground">
-                            {data.time}
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between gap-4 pt-1 border-t border-border">
-                          <span className="text-muted-foreground text-xs">Price</span>
-                          <span className="text-foreground font-semibold tabular-nums">
-                            {formatPrice(value)}
-                          </span>
-                        </div>
-                        {/* Show GTT orders at this price level */}
-                        {gttOrders.filter((o: GTTOrder) => Math.abs(o.price - value) < 0.01).length > 0 && (
-                          <div className="pt-1 border-t border-border space-y-0.5">
-                            <div className="text-xs text-muted-foreground">GTT Orders:</div>
-                            {gttOrders
-                              .filter((o: GTTOrder) => Math.abs(o.price - value) < 0.01)
-                              .map((o: GTTOrder) => (
-                                <div key={o.order_index} className="text-xs" style={{ color: getOrderColor(o.status) }}>
-                                  Order {o.order_index}: {o.status} @ {formatPrice(o.price)}
-                                </div>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                }}
-              />
               <Line
                 type="monotone"
                 dataKey="close"
                 stroke="var(--color-close)"
                 strokeWidth={3}
                 dot={false}
-                activeDot={{ 
-                  r: 6, 
-                  fill: "var(--color-close)",
-                  strokeWidth: 3,
-                  stroke: "oklch(0.15 0 0)"
-                }}
+                activeDot={false}
                 isAnimationActive={true}
                 animationDuration={300}
               />

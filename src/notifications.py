@@ -240,7 +240,7 @@ class NotificationManager:
         
         # Send notification
         self.manager._send_email_notification(
-            title="📝 GTT Orders Updated",
+            title="GTT Orders Updated",
             description=description,
             fields=fields,
             footer_text=f"File: {filename} • {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
@@ -555,7 +555,7 @@ class NotificationManager:
                     f"{order['amount']} @ ${order['price']:.2f}"
                 )
             fields.append({
-                "name": f"✅ Orders Filled ({len(summary['filled'])})",
+                "name": f"Orders Filled ({len(summary['filled'])})",
                 "value": "\n".join(filled_details),
                 "inline": False
             })
@@ -567,7 +567,7 @@ class NotificationManager:
                     f"{order['symbol']} Order {order['order_num']}"
                 )
             fields.append({
-                "name": f"❌ Orders Cancelled/Rejected ({len(summary['cancelled'])})",
+                "name": f"Orders Cancelled/Rejected ({len(summary['cancelled'])})",
                 "value": "\n".join(cancelled_details),
                 "inline": False
             })
@@ -585,7 +585,7 @@ class NotificationManager:
         
         try:
             self.manager._send_email_notification(
-                title=f"📊 Daily Trading Summary - {summary['date']}",
+                title=f"Daily Trading Summary - {summary['date']}",
                 description=description,
                 fields=fields,
                 footer_text=f"Alpaca Trading Bot • {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
@@ -617,7 +617,7 @@ class NotificationManager:
         
         # Overall stats
         fields.append({
-            "name": "📈 Weekly Overview",
+            "name": "Weekly Overview",
             "value": f"Orders Placed: {summary['total_placed']}\n"
                     f"Orders Filled: {summary['total_filled']}\n"
                     f"Orders Cancelled: {summary['total_cancelled']}\n"
@@ -635,7 +635,7 @@ class NotificationManager:
                     f"${day_sum['total_value_filled']:,.2f} executed"
                 )
             fields.append({
-                "name": "📅 Daily Breakdown",
+                "name": "Daily Breakdown",
                 "value": "\n".join(daily_breakdown),
                 "inline": False
             })
@@ -643,7 +643,7 @@ class NotificationManager:
         description = f"Weekly trading summary from {summary['week_start']} to {summary['week_end']}."
         
         self.manager._send_email_notification(
-            title=f"📊 Weekly Trading Summary - {summary['week_start']} to {summary['week_end']}",
+            title=f"Weekly Trading Summary - {summary['week_start']} to {summary['week_end']}",
             description=description,
             fields=fields,
             footer_text=f"Alpaca Trading Bot • {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

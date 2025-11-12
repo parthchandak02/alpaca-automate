@@ -46,3 +46,22 @@ data/gtt-live-crypto.csv
 *.db
 data/*.db
 
+# Build artifacts
+ui/out/
+ui/.next/
+ui/tsconfig.tsbuildinfo
+ui/node_modules/
+
+# Temporary test files (should not be committed)
+scripts/test_gtt_features.py
+scripts/test_database_direct.py
+scripts/README_TESTING.md
+TESTING_CHECKLIST.md
+
+# Python cache
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+

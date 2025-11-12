@@ -16,10 +16,11 @@ from alpaca.trading.requests import GetOrdersRequest
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
 try:
-    from alpaca.trading.enums import QueryOrderStatus
+    from alpaca.trading.enums import QueryOrderStatus, AssetClass
 except ImportError:
     # Fallback if QueryOrderStatus doesn't exist - will use default
     QueryOrderStatus = None
+    AssetClass = None
 import os
 from dotenv import load_dotenv
 
@@ -323,39 +324,29 @@ def get_status():
 @app.route('/api/orders', methods=['GET'])
 @require_auth
 def get_orders():
-    """Get all orders (both active and GTT)"""
+    """Get ALL orders directly from Alpaca API (no GTT mixing)"""
     logger.info("GET /api/orders - Request received")
     if not manager:
         logger.error("Manager not initialized")
-        # Set loading status to indicate manager is initializing
-        set_loading_status(True, "Initializing", 0, 0, "", "Manager is initializing, please wait...")
         return jsonify({"error": "Manager not initialized"}), 503
     
     try:
-        # Only show loading status if this is a significant operation (initial load or first request)
-        # For regular refreshes (every 5 seconds), don't show loading to avoid flickering
-        is_initial_load = not loading_status.get("has_loaded_once", False)
-        
-        if is_initial_load:
-            # Set initial loading status BEFORE processing starts (only for first load)
-            set_loading_status(True, "Fetching orders from Alpaca", 0, 4, "", "Connecting to Alpaca API...", clear_symbols=True)
-        
-        # Get active orders from Alpaca
-        active_orders = []
-        alpaca_orders_list = []
+        # Fetch ALL orders from Alpaca API
+        orders = []
         try:
-            if is_initial_load:
-                set_loading_status(True, "Fetching orders from Alpaca", 1, 4, "", "Requesting orders from Alpaca...")
             # Use GetOrdersRequest for proper API usage
+            # Increase limit to get more orders (Alpaca default is 50, max is 500)
             if QueryOrderStatus:
-                orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=100)
+                orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500)
             else:
-                # Fallback: create request without status enum
-                orders_request = GetOrdersRequest(limit=100)
-            alpaca_orders_list = manager.trading_client.get_orders(orders_request)
+                # Fallback: create request without status enum (will get all orders by default)
+                orders_request = GetOrdersRequest(limit=500)
             
-            if is_initial_load:
-                set_loading_status(True, "Processing Alpaca orders", 2, 4, "", f"Processing {len(alpaca_orders_list)} orders from Alpaca...")
+            logger.debug(f"Fetching orders from Alpaca with request: {orders_request}")
+            alpaca_orders_list = manager.trading_client.get_orders(orders_request)
+            logger.info(f"Received {len(alpaca_orders_list)} orders from Alpaca API")
+            
+            # Process ALL orders from Alpaca
             for order in alpaca_orders_list:
                 # Get timestamps from Alpaca order object
                 created_at = order.created_at.isoformat() if hasattr(order.created_at, 'isoformat') else str(order.created_at)
@@ -380,151 +371,205 @@ def get_orders():
                             elif hasattr(asset, 'class'):
                                 asset_class = getattr(asset, 'class', None)
                     except Exception:
-                        pass  # If we can't get asset, we'll infer from symbol
+                        pass
                 
-                # Infer asset_class from symbol if still not available
+                # Infer asset_class from symbol ONLY as last resort
                 if not asset_class:
-                    # Crypto symbols typically have /USD suffix or are common crypto symbols
                     if '/USD' in order.symbol:
-                        asset_class = 'crypto'
+                        asset_class = AssetClass.CRYPTO if AssetClass else 'crypto'
                     else:
-                        asset_class = 'us_equity'  # Default to stock
+                        asset_class = AssetClass.US_EQUITY if AssetClass else 'us_equity'
+                        logger.warning(f"Could not determine asset_class for {order.symbol}, defaulting to US_EQUITY")
                 
                 # Normalize asset_class to 'stock' or 'crypto' for frontend
-                asset_type = 'crypto' if asset_class and ('crypto' in str(asset_class).lower() or asset_class == AssetClass.CRYPTO) else 'stock'
+                if AssetClass:
+                    if asset_class == AssetClass.CRYPTO or (isinstance(asset_class, str) and 'crypto' in str(asset_class).lower()):
+                        asset_type = 'crypto'
+                    else:
+                        asset_type = 'stock'
+                else:
+                    # Fallback if AssetClass enum not available
+                    asset_type = 'crypto' if (isinstance(asset_class, str) and 'crypto' in str(asset_class).lower()) or '/USD' in order.symbol else 'stock'
                 
-                active_orders.append({
+                # Extract order fields
+                qty = float(order.qty) if order.qty else None
+                notional = float(order.notional) if hasattr(order, 'notional') and order.notional else None
+                filled_qty = float(order.filled_qty) if order.filled_qty else 0
+                filled_notional = float(order.filled_notional) if hasattr(order, 'filled_notional') and order.filled_notional else None
+                filled_avg_price = float(order.filled_avg_price) if hasattr(order, 'filled_avg_price') and order.filled_avg_price else None
+                limit_price = float(order.limit_price) if order.limit_price else None
+                stop_price = float(order.stop_price) if hasattr(order, 'stop_price') and order.stop_price else None
+                
+                # Determine order type for display
+                order_type = None
+                if hasattr(order, 'type'):
+                    order_type_val = order.type.value if hasattr(order.type, 'value') else str(order.type)
+                    if order_type_val.lower() == 'limit' and limit_price:
+                        order_type = f"Limit @ USD {limit_price:.2f}"
+                    elif order_type_val.lower() == 'stop' and stop_price:
+                        order_type = f"Stop @ USD {stop_price:.2f}"
+                    elif order_type_val.lower() == 'stop_limit' and limit_price and stop_price:
+                        order_type = f"Stop Limit @ USD {stop_price:.2f} / {limit_price:.2f}"
+                    elif order_type_val.lower() == 'market':
+                        order_type = "Market"
+                    else:
+                        order_type = order_type_val.capitalize()
+                
+                # Calculate missing values (notional vs qty)
+                # If order was placed with notional (USD amount), calculate qty
+                # If order was placed with qty, calculate notional
+                calculated_qty = None
+                calculated_notional = None
+                
+                if notional is not None:
+                    # Order was placed with USD amount - calculate quantity
+                    # Use filled_avg_price if filled, otherwise limit_price, otherwise None
+                    price_for_calc = filled_avg_price or limit_price
+                    if price_for_calc and price_for_calc > 0:
+                        calculated_qty = notional / price_for_calc
+                elif qty is not None and qty > 0:
+                    # Order was placed with quantity - calculate notional (USD amount)
+                    # Use filled_avg_price if filled, otherwise limit_price
+                    price_for_calc = filled_avg_price or limit_price
+                    if price_for_calc:
+                        calculated_notional = qty * price_for_calc
+                
+                # For filled orders, prefer filled_notional and filled_qty
+                if filled_notional is not None:
+                    calculated_notional = filled_notional
+                if filled_qty > 0:
+                    calculated_qty = filled_qty if calculated_qty is None else calculated_qty
+                
+                orders.append({
                     "id": order.id,
                     "symbol": order.symbol,
                     "side": order.side.value if hasattr(order.side, 'value') else str(order.side),
-                    "quantity": float(order.qty) if order.qty else 0,
-                    "limit_price": float(order.limit_price) if order.limit_price else None,
+                    "quantity": qty if qty is not None else 0,
+                    "notional": notional,  # USD amount if order was placed with notional
+                    "calculated_qty": calculated_qty,  # Calculated quantity if order was placed with notional
+                    "calculated_notional": calculated_notional,  # Calculated USD amount if order was placed with qty
+                    "limit_price": limit_price,
+                    "stop_price": stop_price,
+                    "order_type": order_type,  # "Market", "Limit @ USD 0.18", etc.
                     "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
                     "created_at": created_at,
                     "updated_at": updated_at,
                     "filled_at": filled_at,
                     "canceled_at": canceled_at,
-                    "filled_qty": float(order.filled_qty) if order.filled_qty else 0,
-                    "asset_type": asset_type,  # Add asset_type from Alpaca
+                    "filled_qty": filled_qty,
+                    "filled_notional": filled_notional,  # Actual filled USD amount
+                    "filled_avg_price": filled_avg_price,  # Average fill price
+                    "asset_type": asset_type,
                 })
-            logger.info(f"Fetched {len(active_orders)} active orders from Alpaca")
+            logger.info(f"Fetched {len(orders)} orders from Alpaca")
         except Exception as e:
-            logger.error(f"Error fetching active orders: {e}", exc_info=True)
+            logger.error(f"Error fetching orders from Alpaca: {e}", exc_info=True)
+            return jsonify({"error": f"Error fetching orders: {str(e)}"}), 500
         
-        # Get GTT orders from ladders
-        if is_initial_load:
-            set_loading_status(True, "Processing GTT orders", 3, 4, "", f"Processing GTT orders for {len(manager.ladders)} symbols...")
+        logger.info(f"Returning {len(orders)} orders from Alpaca")
+        return jsonify({
+            "orders": orders,  # ALL orders directly from Alpaca
+        })
+    except Exception as e:
+        logger.error(f"Error in get_orders: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/gtt/pause', methods=['POST'])
+@require_auth
+def pause_gtt():
+    """Pause GTT ordering (disable all trigger checks)"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    manager.gtt_enabled = False
+    logger.info("GTT ordering PAUSED - all trigger checks disabled")
+    return jsonify({"status": "paused", "message": "GTT ordering has been paused"})
+
+@app.route('/api/gtt/resume', methods=['POST'])
+@require_auth
+def resume_gtt():
+    """Resume GTT ordering (enable trigger checks)"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    manager.gtt_enabled = True
+    logger.info("GTT ordering RESUMED - trigger checks enabled")
+    return jsonify({"status": "resumed", "message": "GTT ordering has been resumed"})
+
+@app.route('/api/gtt/status', methods=['GET'])
+@require_auth
+def get_gtt_status():
+    """Get GTT ordering status (enabled/paused)"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    return jsonify({
+        "enabled": manager.gtt_enabled,
+        "status": "enabled" if manager.gtt_enabled else "paused"
+    })
+
+@app.route('/api/gtt', methods=['GET'])
+@require_auth
+def get_gtt():
+    """Get GTT orders from database (with optional Alpaca order linking)"""
+    logger.info("GET /api/gtt - Request received")
+    if not manager:
+        logger.error("Manager not initialized")
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        # Get GTT orders from database/ladders
         gtt_orders = []
-        total_symbols = len(manager.ladders)
-        processed = 0
         
+        # Get all Alpaca orders for status syncing (optional - for linking)
+        alpaca_orders_by_id = {}
+        try:
+            if QueryOrderStatus:
+                orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500)
+            else:
+                orders_request = GetOrdersRequest(limit=500)
+            alpaca_orders_list = manager.trading_client.get_orders(orders_request)
+            # Create mapping for quick lookup
+            for order in alpaca_orders_list:
+                alpaca_orders_by_id[order.id] = order
+        except Exception as e:
+            logger.debug(f"Could not fetch Alpaca orders for GTT linking: {e}")
+        
+        # Process GTT orders from ladders
         for symbol, ladder in manager.ladders.items():
-            processed += 1
-            if is_initial_load:
-                set_loading_status(True, "Processing GTT orders", 3, 4, symbol, f"Processing {symbol} ({processed}/{total_symbols})...")
-            
-            # Get all Alpaca orders for this symbol to sync statuses and determine asset_type
-            # Handle symbol normalization: COMP-STOCK -> COMP, BTC -> BTC/USD, etc.
-            symbol_alpaca_orders = {}
-            symbol_asset_type = None  # Will be determined from actual Alpaca orders
-            try:
-                for order in alpaca_orders_list:
-                    order_symbol = order.symbol
-                    # Normalize order symbol (remove /USD for crypto, handle -STOCK suffix)
-                    normalized_order_symbol = order_symbol.replace('/USD', '') if '/USD' in order_symbol else order_symbol
-                    
-                    # Check if this order matches our symbol
-                    # Handle cases where we renamed symbols (e.g., COMP-STOCK -> COMP in Alpaca)
-                    symbol_matches = (
-                        order_symbol == symbol or  # Exact match
-                        normalized_order_symbol == symbol or  # Normalized match
-                        symbol.endswith('-STOCK') and normalized_order_symbol == symbol.replace('-STOCK', '')  # COMP-STOCK matches COMP
-                    )
-                    
-                    if symbol_matches:
-                        symbol_alpaca_orders[order.id] = order.status.value if hasattr(order.status, 'value') else str(order.status)
-                        
-                        # Determine asset_type from actual Alpaca order (not from CSV/database)
-                        if symbol_asset_type is None:
-                            # Get asset_class from Alpaca order
-                            asset_class = None
-                            if hasattr(order, 'asset_class'):
-                                asset_class = order.asset_class
-                            elif hasattr(order, 'class'):
-                                asset_class = getattr(order, 'class', None)
-                            
-                            # If not available on order, try to get from asset
-                            if not asset_class:
-                                try:
-                                    asset = manager.trading_client.get_asset(order.symbol)
-                                    if asset:
-                                        if hasattr(asset, 'asset_class'):
-                                            asset_class = asset.asset_class
-                                        elif hasattr(asset, 'class'):
-                                            asset_class = getattr(asset, 'class', None)
-                                except Exception:
-                                    pass
-                            
-                            # Determine asset_type from asset_class
-                            if asset_class:
-                                symbol_asset_type = 'crypto' if ('crypto' in str(asset_class).lower() or asset_class == AssetClass.CRYPTO) else 'stock'
-                            else:
-                                # Infer from symbol format
-                                symbol_asset_type = 'crypto' if '/USD' in order.symbol else 'stock'
-            except Exception as e:
-                logger.debug(f"Error processing Alpaca orders for {symbol}: {e}")
-            
-            # Only include GTT orders that have actual Alpaca orders OR use asset_type from Alpaca
-            # If we couldn't determine asset_type from Alpaca orders, skip this symbol to avoid showing incorrect data
-            if symbol_asset_type is None:
-                # Try to determine from any matching Alpaca order by fetching asset
-                try:
-                    # Try different symbol formats
-                    symbols_to_try = [symbol, f"{symbol}/USD"] if not symbol.endswith('/USD') else [symbol]
-                    for try_symbol in symbols_to_try:
-                        try:
-                            asset = manager.trading_client.get_asset(try_symbol)
-                            if asset:
-                                asset_class = None
-                                if hasattr(asset, 'asset_class'):
-                                    asset_class = asset.asset_class
-                                elif hasattr(asset, 'class'):
-                                    asset_class = getattr(asset, 'class', None)
-                                
-                                if asset_class:
-                                    symbol_asset_type = 'crypto' if ('crypto' in str(asset_class).lower() or asset_class == AssetClass.CRYPTO) else 'stock'
-                                    break
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-            
-            # If still can't determine, use ladder's asset_type as fallback (but log warning)
-            if symbol_asset_type is None:
-                symbol_asset_type = ladder.asset_type
-                logger.warning(f"Could not determine asset_type from Alpaca for {symbol}, using ladder asset_type: {symbol_asset_type}")
+            # Determine asset_type from ladder
+            symbol_asset_type = ladder.asset_type
             
             for idx, order in enumerate(ladder.orders):
-                # Determine status: use Alpaca status if order is placed, otherwise use internal status
+                # Determine status: use Alpaca status if order is linked, otherwise use internal status
                 display_status = order.status
-                if order.order_id and order.order_id in symbol_alpaca_orders:
-                    # Use Alpaca's official status for placed orders
-                    display_status = symbol_alpaca_orders[order.order_id]
+                if order.order_id and order.order_id in alpaca_orders_by_id:
+                    # Use Alpaca's official status for linked orders
+                    alpaca_order = alpaca_orders_by_id[order.order_id]
+                    display_status = alpaca_order.status.value if hasattr(alpaca_order.status, 'value') else str(alpaca_order.status)
                 elif order.status == "placed" and order.order_id:
                     # Order was placed but not found in current Alpaca orders - might be filled/cancelled
-                    # Try to get status from Alpaca
                     try:
                         alpaca_order = manager.trading_client.get_order_by_id(order.order_id)
                         display_status = alpaca_order.status.value if hasattr(alpaca_order.status, 'value') else str(alpaca_order.status)
                     except Exception:
-                        # Order might not exist anymore, keep as "placed" for now
                         pass
                 
-                # Get reinstated flag from database (only metadata, not order data)
+                # Get reinstated flag and mode from database
                 db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
                 reinstated = False
+                mode = 'auto'
+                gtt_order_id = None
                 if idx < len(db_orders):
                     reinstated = db_orders[idx].reinstated
+                    mode = db_orders[idx].mode if hasattr(db_orders[idx], 'mode') else 'auto'
+                    gtt_order_id = db_orders[idx].id
+                
+                # Get global mode for this asset type
+                global_mode = manager.db.get_global_mode(asset_type=symbol_asset_type)
+                # Individual mode takes precedence, but if not set, use global mode
+                effective_mode = mode if mode in ['auto', 'manual'] else global_mode
                 
                 gtt_orders.append({
                     "symbol": symbol,
@@ -533,32 +578,29 @@ def get_orders():
                     "total_orders": len(ladder.orders),
                     "amount": order.amount,
                     "price": order.price,
-                    "status": display_status,  # Use synced Alpaca status
-                    "order_id": order.order_id,
+                    "status": display_status,
+                    "order_id": order.order_id,  # Linked Alpaca order ID (if any)
                     "current_order_index": ladder.current_order_index,
                     "is_current": idx == ladder.current_order_index,
                     "is_available_on_alpaca": ladder.is_available_on_alpaca,
-                    "asset_type": symbol_asset_type,  # Use asset_type from Alpaca, not from CSV/database
-                    "reinstated": reinstated,  # Whether this order has been reinstated before
+                    "asset_type": symbol_asset_type,
+                    "reinstated": reinstated,
+                    "mode": effective_mode,
+                    "gtt_order_id": gtt_order_id,  # Database ID for linking
                 })
         
-        # Clear loading status when done - use clear_loading_status to fully reset
-        if is_initial_load:
-            # Mark that we've loaded once, then clear status
-            loading_status["has_loaded_once"] = True
-            clear_loading_status()
-        else:
-            # For subsequent loads, just ensure is_loading is false (don't show progress bar)
-            loading_status["is_loading"] = False
+        # Get global modes for both asset types
+        global_mode_stock = manager.db.get_global_mode(asset_type='stock')
+        global_mode_crypto = manager.db.get_global_mode(asset_type='crypto')
         
-        logger.info(f"Returning {len(active_orders)} active orders and {len(gtt_orders)} GTT orders")
+        logger.info(f"Returning {len(gtt_orders)} GTT orders from database")
         return jsonify({
-            "active_orders": active_orders,
             "gtt_orders": gtt_orders,
+            "global_mode_stock": global_mode_stock,
+            "global_mode_crypto": global_mode_crypto
         })
     except Exception as e:
-        logger.error(f"Error in get_orders: {e}", exc_info=True)
-        set_loading_status(False, "Error", 0, 0, "", f"Error: {str(e)}")
+        logger.error(f"Error in get_gtt: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -726,44 +768,61 @@ def force_fill_order():
         
         # Only auto-place the next order if we force-filled the CURRENT order (sequential behavior)
         # If we force-filled a future order, don't auto-place anything
+        # Also check mode before auto-placing
         if was_current_order:
             next_order = ladder.get_current_order()
             if next_order and next_order.status == "pending" and not next_order.order_id:
-                try:
-                    account = manager.trading_client.get_account()
-                    buying_power = float(account.buying_power)
-                    order_value = next_order.price * next_order.amount
-                    
-                    if order_value <= buying_power:
-                        from alpaca.trading.requests import LimitOrderRequest
-                        from alpaca.trading.enums import OrderSide, TimeInForce
+                # Check mode before auto-placing
+                db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+                next_order_index = ladder.current_order_index
+                individual_mode = None
+                if next_order_index < len(db_orders):
+                    individual_mode = db_orders[next_order_index].mode if hasattr(db_orders[next_order_index], 'mode') else None
+                
+                # Get global mode for this asset type
+                asset_type = ladder.asset_type if hasattr(ladder, 'asset_type') else 'stock'
+                global_mode = manager.db.get_global_mode(asset_type=asset_type)
+                effective_mode = individual_mode if individual_mode in ['auto', 'manual'] else global_mode
+                
+                # Only auto-place if mode is auto
+                if effective_mode == 'auto':
+                    try:
+                        account = manager.trading_client.get_account()
+                        buying_power = float(account.buying_power)
+                        order_value = next_order.price * next_order.amount
                         
-                        # Format symbol correctly for order placement
-                        # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
-                        order_symbol = symbol
-                        if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
-                            order_symbol = f"{symbol}/USD"
-                        
-                        order_request = LimitOrderRequest(
-                            symbol=order_symbol,
-                            qty=next_order.amount,
-                            side=OrderSide.BUY,
-                            limit_price=next_order.price,
-                            time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
-                        )
-                        
-                        placed_order = manager.trading_client.submit_order(order_data=order_request)
-                        next_order.order_id = placed_order.id
-                        next_order.status = "placed"
-                        
-                        # Update database
-                        manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
-                        manager._invalidate_ladders_cache()
-                        
-                        logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
-                                  f"Limit: ${next_order.price:.2f}, Order ID: {placed_order.id}")
-                except Exception as e:
-                    logger.warning(f"Could not auto-place next order: {e}")
+                        if order_value <= buying_power:
+                            from alpaca.trading.requests import LimitOrderRequest
+                            from alpaca.trading.enums import OrderSide, TimeInForce
+                            
+                            # Format symbol correctly for order placement
+                            # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
+                            order_symbol = symbol
+                            if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
+                                order_symbol = f"{symbol}/USD"
+                            
+                            order_request = LimitOrderRequest(
+                                symbol=order_symbol,
+                                qty=next_order.amount,
+                                side=OrderSide.BUY,
+                                limit_price=next_order.price,
+                                time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
+                            )
+                            
+                            placed_order = manager.trading_client.submit_order(order_data=order_request)
+                            next_order.order_id = placed_order.id
+                            next_order.status = "placed"
+                            
+                            # Update database
+                            manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
+                            manager._invalidate_ladders_cache()
+                            
+                            logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
+                                      f"Limit: ${next_order.price:.2f}, Order ID: {placed_order.id}")
+                    except Exception as e:
+                        logger.warning(f"Could not auto-place next order: {e}")
+                else:
+                    logger.info(f"SKIP AUTO-PLACE: {symbol} - Order {next_order_index + 1} is in manual mode")
         
         return jsonify({
             "success": True,
@@ -889,59 +948,68 @@ def simulate_fill():
         manager.db.update_current_order_index(symbol, ladder.current_order_index)
         manager._invalidate_ladders_cache()
         
-        # Immediately place the next order (auto-place logic)
+        # Immediately place the next order (auto-place logic) - only if mode is auto
         next_order = ladder.get_current_order()
         next_order_placed = False
         if next_order and next_order.status == "pending":
-            try:
-                # Check account buying power
-                account = manager.trading_client.get_account()
-                buying_power = float(account.buying_power)
-                order_value = next_order.price * next_order.amount
-                
-                if order_value > buying_power:
-                    logger.warning(f"Insufficient buying power for {symbol}. "
-                                 f"Required: ${order_value:.2f}, Available: ${buying_power:.2f}")
-                    return jsonify({
-                        "success": True,
-                        "message": f"Order {ladder.current_order_index} for {symbol} marked as filled",
-                        "next_order": ladder.current_order_index + 1 if next_order else None,
-                        "next_order_placed": False,
-                        "error": "Insufficient buying power for next order"
-                    })
-                
-                # Place limit order
-                from alpaca.trading.requests import LimitOrderRequest
-                from alpaca.trading.enums import OrderSide, TimeInForce
-                
-                order_request = LimitOrderRequest(
-                    symbol=symbol,
-                    qty=next_order.amount,
-                    side=OrderSide.BUY,
-                    limit_price=next_order.price,
-                    time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
-                )
-                
-                placed_order = manager.trading_client.submit_order(order_data=order_request)
-                next_order.order_id = placed_order.id
-                next_order.status = "placed"
-                
-                # Update database
-                manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
-                manager._invalidate_ladders_cache()
-                
-                next_order_placed = True
-                logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
-                          f"Limit: ${next_order.price:.2f}, Order ID: {placed_order.id}")
-            except Exception as e:
-                logger.error(f"Error auto-placing next order: {e}", exc_info=True)
-                return jsonify({
-                    "success": True,
-                    "message": f"Order {ladder.current_order_index} for {symbol} marked as filled",
-                    "next_order": ladder.current_order_index + 1 if next_order else None,
-                    "next_order_placed": False,
-                    "error": str(e)
-                })
+            # Check mode before auto-placing
+            db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+            next_order_index = ladder.current_order_index
+            individual_mode = None
+            if next_order_index < len(db_orders):
+                individual_mode = db_orders[next_order_index].mode if hasattr(db_orders[next_order_index], 'mode') else None
+            
+            # Get global mode for this asset type
+            asset_type = ladder.asset_type if hasattr(ladder, 'asset_type') else 'stock'
+            global_mode = manager.db.get_global_mode(asset_type=asset_type)
+            effective_mode = individual_mode if individual_mode in ['auto', 'manual'] else global_mode
+            
+            # Only auto-place if mode is auto
+            if effective_mode == 'auto':
+                try:
+                    # Check account buying power
+                    account = manager.trading_client.get_account()
+                    buying_power = float(account.buying_power)
+                    order_value = next_order.price * next_order.amount
+                    
+                    if order_value > buying_power:
+                        logger.warning(f"Insufficient buying power for {symbol}. "
+                                     f"Required: ${order_value:.2f}, Available: ${buying_power:.2f}")
+                        return jsonify({
+                            "success": True,
+                            "message": f"Order {ladder.current_order_index} for {symbol} marked as filled",
+                            "next_order": ladder.current_order_index + 1 if next_order else None,
+                            "next_order_placed": False,
+                            "error": "Insufficient buying power for next order"
+                        })
+                    
+                    # Place limit order
+                    from alpaca.trading.requests import LimitOrderRequest
+                    from alpaca.trading.enums import OrderSide, TimeInForce
+                    
+                    order_request = LimitOrderRequest(
+                        symbol=symbol,
+                        qty=next_order.amount,
+                        side=OrderSide.BUY,
+                        limit_price=next_order.price,
+                        time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
+                    )
+                    
+                    placed_order = manager.trading_client.submit_order(order_data=order_request)
+                    next_order.order_id = placed_order.id
+                    next_order.status = "placed"
+                    
+                    # Update database
+                    manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
+                    manager._invalidate_ladders_cache()
+                    
+                    next_order_placed = True
+                    logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
+                              f"Limit: ${next_order.price:.2f}, Order ID: {placed_order.id}")
+                except Exception as e:
+                    logger.error(f"Error auto-placing next order: {e}", exc_info=True)
+            else:
+                logger.info(f"SKIP AUTO-PLACE: {symbol} - Order {next_order_index + 1} is in manual mode")
         
         return jsonify({
             "success": True,
@@ -1224,7 +1292,7 @@ def test_email():
         from datetime import datetime
         
         manager._send_email_notification(
-            title="🧪 Test Email",
+            title="Test Email",
             description="This is a test email to verify your email notification configuration is working correctly.",
             fields=[
                 {
@@ -1363,7 +1431,7 @@ def reinstate_gtt_order():
             })
         
         manager._send_email_notification(
-            title="🔄 GTT Order Re-instated",
+            title="GTT Order Re-instated",
             description=f"{symbol} - Order {target_order_num} of {total_orders} has been re-instated",
             fields=notification_fields,
             footer_text=f"{ladder.company} • Order {target_order_num}/{total_orders} re-instated"
@@ -1838,10 +1906,12 @@ def edit_gtt_order():
             target_order.amount = float(new_amount)
         
         # Update database
-        # Get current order status and order_id
+        # Get current order status, order_id, and mode
         db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
         if order_index < len(db_orders):
             db_order = db_orders[order_index]
+            # Preserve existing mode if it exists, otherwise default to 'auto'
+            preserved_mode = db_order.mode if hasattr(db_order, 'mode') and db_order.mode else 'auto'
             manager.db.import_gtt_order(
                 symbol=symbol,
                 company=ladder.company,
@@ -1851,8 +1921,15 @@ def edit_gtt_order():
                 is_available_on_alpaca=ladder.is_available_on_alpaca,
                 status=target_order.status,
                 order_id=target_order.order_id,
-                asset_type=db_order.asset_type  # Preserve asset_type
+                asset_type=db_order.asset_type,  # Preserve asset_type
+                mode=preserved_mode  # Preserve mode
             )
+            
+            # If price changed, reorder indices by price
+            if new_price is not None and abs(new_price - db_order.price) > 0.01:
+                manager.db.reorder_gtt_indices_by_price(symbol)
+                # Reload ladders after reordering
+                manager._invalidate_ladders_cache()
         
         # Invalidate cache
         manager._invalidate_ladders_cache()
@@ -1912,16 +1989,50 @@ def get_chart_data(symbol: str):
             # For MAX, use a very old date (Alpaca's historical data goes back several years)
             start_date = datetime(2020, 1, 1)
         
-        # Determine asset type from manager ladders
+        # Determine asset type directly from Alpaca (NOT from ladders)
+        # Charts should load independently of GTT orders
         asset_type = 'stock'  # Default to stock
         chart_symbol = symbol  # Symbol to use for chart API
         
-        if symbol in manager.ladders:
-            ladder = manager.ladders[symbol]
-            asset_type = ladder.asset_type
-            # For crypto, use symbol/USD format for chart API
-            if asset_type == 'crypto' and not symbol.endswith('/USD'):
-                chart_symbol = f"{symbol}/USD"
+        # Normalize symbol - remove any trailing /USD if present to avoid double-appending
+        normalized_symbol = symbol.upper().replace('/USD', '')
+        
+        # Try to detect asset type from symbol format first (fastest)
+        if '/USD' in symbol.upper():
+            asset_type = 'crypto'
+            chart_symbol = symbol.upper()
+        elif normalized_symbol in ['BTC', 'ETH', 'DOGE', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'LTC', 'BCH', 'XRP', 'ETC']:
+            # Common crypto symbols without /USD suffix
+            asset_type = 'crypto'
+            chart_symbol = f"{normalized_symbol}/USD"
+        else:
+            # Try to verify by checking asset directly from Alpaca
+            try:
+                asset = manager.trading_client.get_asset(normalized_symbol)
+                if asset:
+                    if hasattr(asset, 'asset_class'):
+                        asset_class = asset.asset_class
+                    elif hasattr(asset, 'class'):
+                        asset_class = getattr(asset, 'class', None)
+                    else:
+                        asset_class = None
+                    
+                    if asset_class:
+                        if asset_class == AssetClass.CRYPTO if AssetClass else (isinstance(asset_class, str) and 'crypto' in str(asset_class).lower()):
+                            asset_type = 'crypto'
+                            chart_symbol = f"{normalized_symbol}/USD"
+                        else:
+                            asset_type = 'stock'
+                            chart_symbol = normalized_symbol
+                    else:
+                        # No asset_class found, default to stock
+                        asset_type = 'stock'
+                        chart_symbol = normalized_symbol
+            except Exception as e:
+                # If we can't determine, default to stock
+                logger.debug(f"Could not determine asset type for {symbol} from Alpaca: {e}, defaulting to stock")
+                asset_type = 'stock'
+                chart_symbol = normalized_symbol
         
         # Create request based on asset type
         if asset_type == 'crypto':
@@ -1954,10 +2065,11 @@ def get_chart_data(symbol: str):
                     "volume": int(bar.volume) if bar.volume else 0,
                 })
         
-        # Get GTT orders for this symbol
+        # Get GTT orders for this symbol (only for overlay lines - chart data already loaded)
         gtt_orders_for_symbol = []
-        if symbol in manager.ladders:
-            ladder = manager.ladders[symbol]
+        # Use normalized_symbol for matching (handles both BTC and BTC/USD formats)
+        if normalized_symbol in manager.ladders:
+            ladder = manager.ladders[normalized_symbol]
             # Get Alpaca orders for this symbol to get timestamps
             symbol_alpaca_orders = {}
             try:
@@ -1969,7 +2081,7 @@ def get_chart_data(symbol: str):
                     # Normalize symbol for matching (handle crypto symbol format differences)
                     order_symbol = order.symbol
                     normalized_order_symbol = order_symbol.replace('/USD', '') if '/USD' in order_symbol else order_symbol
-                    if normalized_order_symbol == symbol:
+                    if normalized_order_symbol == normalized_symbol:
                         symbol_alpaca_orders[order.id] = {
                             'status': order.status.value if hasattr(order.status, 'value') else str(order.status),
                             'updated_at': order.updated_at.isoformat() if hasattr(order.updated_at, 'isoformat') else str(order.updated_at) if hasattr(order, 'updated_at') else None,
@@ -2032,6 +2144,406 @@ def get_chart_data(symbol: str):
         })
     except Exception as e:
         logger.error(f"Error fetching chart data for {symbol}: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/link-gtt-to-order', methods=['POST'])
+@require_auth
+def link_gtt_to_order():
+    """Manually link a GTT order to an executed Alpaca order"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        gtt_order_id = data.get('gtt_order_id')  # Database ID
+        alpaca_order_id = data.get('alpaca_order_id')
+        
+        if not gtt_order_id or not alpaca_order_id:
+            return jsonify({"error": "gtt_order_id and alpaca_order_id required"}), 400
+        
+        # Get GTT order
+        gtt_order = manager.db.get_gtt_order_by_id(gtt_order_id)
+        if not gtt_order:
+            return jsonify({"error": "GTT order not found"}), 404
+        
+        # Get Alpaca order to check status
+        try:
+            alpaca_order = manager.trading_client.get_order_by_id(alpaca_order_id)
+            filled_at = None
+            canceled_at = None
+            
+            if hasattr(alpaca_order, 'filled_at') and alpaca_order.filled_at:
+                filled_at = alpaca_order.filled_at.isoformat() if hasattr(alpaca_order.filled_at, 'isoformat') else str(alpaca_order.filled_at)
+            if hasattr(alpaca_order, 'canceled_at') and alpaca_order.canceled_at:
+                canceled_at = alpaca_order.canceled_at.isoformat() if hasattr(alpaca_order.canceled_at, 'isoformat') else str(alpaca_order.canceled_at)
+        except Exception as e:
+            logger.warning(f"Could not fetch Alpaca order {alpaca_order_id}: {e}")
+            # Still allow linking even if we can't fetch the order
+        
+        # Link the orders
+        manager.db.link_gtt_to_alpaca_order(
+            gtt_order_id=gtt_order_id,
+            alpaca_order_id=alpaca_order_id,
+            symbol=gtt_order.symbol,
+            filled_at=filled_at,
+            canceled_at=canceled_at
+        )
+        
+        # Reload ladders to reflect the change
+        manager._invalidate_ladders_cache()
+        
+        logger.info(f"Linked GTT order {gtt_order_id} to Alpaca order {alpaca_order_id}")
+        return jsonify({"success": True, "message": "Orders linked successfully"})
+    except Exception as e:
+        logger.error(f"Error linking GTT to order: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/link-order-to-gtt', methods=['POST'])
+@require_auth
+def link_order_to_gtt():
+    """Manually link an executed Alpaca order to a GTT order"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        alpaca_order_id = data.get('alpaca_order_id')
+        gtt_order_id = data.get('gtt_order_id')  # Database ID
+        
+        if not alpaca_order_id or not gtt_order_id:
+            return jsonify({"error": "alpaca_order_id and gtt_order_id required"}), 400
+        
+        # Get GTT order
+        gtt_order = manager.db.get_gtt_order_by_id(gtt_order_id)
+        if not gtt_order:
+            return jsonify({"error": "GTT order not found"}), 404
+        
+        # Get Alpaca order to check status
+        try:
+            alpaca_order = manager.trading_client.get_order_by_id(alpaca_order_id)
+            filled_at = None
+            canceled_at = None
+            
+            if hasattr(alpaca_order, 'filled_at') and alpaca_order.filled_at:
+                filled_at = alpaca_order.filled_at.isoformat() if hasattr(alpaca_order.filled_at, 'isoformat') else str(alpaca_order.filled_at)
+            if hasattr(alpaca_order, 'canceled_at') and alpaca_order.canceled_at:
+                canceled_at = alpaca_order.canceled_at.isoformat() if hasattr(alpaca_order.canceled_at, 'isoformat') else str(alpaca_order.canceled_at)
+        except Exception as e:
+            logger.warning(f"Could not fetch Alpaca order {alpaca_order_id}: {e}")
+            # Still allow linking even if we can't fetch the order
+        
+        # Link the orders
+        manager.db.link_gtt_to_alpaca_order(
+            gtt_order_id=gtt_order_id,
+            alpaca_order_id=alpaca_order_id,
+            symbol=gtt_order.symbol,
+            filled_at=filled_at,
+            canceled_at=canceled_at
+        )
+        
+        # Reload ladders to reflect the change
+        manager._invalidate_ladders_cache()
+        
+        logger.info(f"Linked Alpaca order {alpaca_order_id} to GTT order {gtt_order_id}")
+        return jsonify({"success": True, "message": "Orders linked successfully"})
+    except Exception as e:
+        logger.error(f"Error linking order to GTT: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/create-gtt-order', methods=['POST'])
+@require_auth
+def create_gtt_order():
+    """Manually create a new GTT order"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        symbol = data.get('symbol', '').upper().strip()
+        company = data.get('company', '').strip()
+        amount = float(data.get('amount', 0))
+        price = float(data.get('price', 0))
+        asset_type = data.get('asset_type', 'stock').lower()
+        
+        if not symbol:
+            return jsonify({"error": "Symbol required"}), 400
+        if not company:
+            return jsonify({"error": "Company name required"}), 400
+        if amount <= 0:
+            return jsonify({"error": "Amount must be greater than 0"}), 400
+        if price <= 0:
+            return jsonify({"error": "Price must be greater than 0"}), 400
+        if asset_type not in ['stock', 'crypto']:
+            return jsonify({"error": "asset_type must be 'stock' or 'crypto'"}), 400
+        
+        # For manual GTT orders, we allow any price - they will be automatically reordered by price
+        # No need to validate price sequence since reordering handles it
+        
+        # Check if asset is available on Alpaca
+        is_available = True
+        try:
+            if asset_type == 'crypto':
+                # For crypto, check if symbol/USD format exists
+                crypto_symbol = symbol if symbol.endswith('/USD') else f"{symbol}/USD"
+                assets = manager.trading_client.get_all_assets(asset_class=AssetClass.CRYPTO)
+                is_available = any(a.symbol == crypto_symbol for a in assets)
+            else:
+                assets = manager.trading_client.get_all_assets(asset_class=AssetClass.US_EQUITY)
+                is_available = any(a.symbol == symbol for a in assets)
+        except Exception as e:
+            logger.warning(f"Could not verify asset availability: {e}")
+            is_available = True  # Default to available
+        
+        # Create the GTT order (will automatically reorder indices)
+        gtt_id = manager.db.create_manual_gtt_order(
+            symbol=symbol,
+            company=company,
+            amount=amount,
+            price=price,
+            asset_type=asset_type,
+            is_available_on_alpaca=is_available
+        )
+        
+        # Reload ladders to include the new order
+        manager._invalidate_ladders_cache()
+        # Need to reload the symbol's ladder
+        if symbol in manager.ladders:
+            # Reload from database
+            db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+            if db_orders:
+                # Rebuild ladder
+                ladder = manager.ladders[symbol]
+                ladder.orders = []
+                for db_order in db_orders:
+                    order = SequentialOrder(
+                        amount=db_order.amount,
+                        price=db_order.price,
+                        status=db_order.status,
+                        order_id=db_order.order_id
+                    )
+                    ladder.orders.append(order)
+                # Sort by price DESC to match order_index
+                ladder.orders.sort(key=lambda o: o.price, reverse=True)
+        
+        logger.info(f"Created manual GTT order: {symbol} @ ${price:.2f} x {amount}")
+        return jsonify({
+            "success": True,
+            "message": "GTT order created successfully",
+            "gtt_order_id": gtt_id
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error creating GTT order: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/toggle-gtt-mode', methods=['POST'])
+@require_auth
+def toggle_gtt_mode():
+    """Toggle individual GTT order mode (auto/manual)"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        gtt_order_id = data.get('gtt_order_id')  # Database ID
+        mode = data.get('mode')  # 'auto' or 'manual'
+        
+        if not gtt_order_id:
+            return jsonify({"error": "gtt_order_id required"}), 400
+        if mode not in ['auto', 'manual']:
+            return jsonify({"error": "mode must be 'auto' or 'manual'"}), 400
+        
+        # Update mode
+        manager.db.update_gtt_order_mode(gtt_order_id, mode)
+        
+        # Reload ladders to reflect the change
+        manager._invalidate_ladders_cache()
+        
+        logger.info(f"Updated GTT order {gtt_order_id} mode to {mode}")
+        return jsonify({"success": True, "message": f"Mode set to {mode}"})
+    except Exception as e:
+        logger.error(f"Error toggling GTT mode: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/toggle-global-mode', methods=['POST'])
+@require_auth
+def toggle_global_mode():
+    """Toggle global mode (All Auto / All Manual) for a specific asset type"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        mode = data.get('mode')  # 'auto' or 'manual'
+        asset_type = data.get('asset_type', 'stock')  # 'stock' or 'crypto'
+        
+        if mode not in ['auto', 'manual']:
+            return jsonify({"error": "mode must be 'auto' or 'manual'"}), 400
+        if asset_type not in ['stock', 'crypto']:
+            return jsonify({"error": "asset_type must be 'stock' or 'crypto'"}), 400
+        
+        # Update global mode for this asset type
+        manager.db.set_global_mode(mode, asset_type=asset_type)
+        
+        logger.info(f"Updated global mode for {asset_type} to {mode}")
+        return jsonify({
+            "success": True,
+            "message": f"Global mode for {asset_type} set to {mode}",
+            "global_mode": mode,
+            "asset_type": asset_type
+        })
+    except Exception as e:
+        logger.error(f"Error toggling global mode: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/available-symbols', methods=['GET'])
+@require_auth
+def get_available_symbols():
+    """Get list of available symbols from Alpaca, filtered by asset type"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        asset_type = request.args.get('asset_type', 'stock')  # 'stock' or 'crypto'
+        
+        if asset_type == 'crypto':
+            if AssetClass:
+                assets = manager.trading_client.get_all_assets(asset_class=AssetClass.CRYPTO)
+            else:
+                # Fallback: return common crypto symbols
+                return jsonify({
+                    "symbols": [
+                        {"symbol": "BTC/USD", "name": "Bitcoin"},
+                        {"symbol": "ETH/USD", "name": "Ethereum"},
+                        {"symbol": "DOGE/USD", "name": "Dogecoin"},
+                        {"symbol": "SOL/USD", "name": "Solana"},
+                        {"symbol": "ADA/USD", "name": "Cardano"},
+                    ]
+                })
+        else:
+            if AssetClass:
+                assets = manager.trading_client.get_all_assets(asset_class=AssetClass.US_EQUITY)
+            else:
+                return jsonify({"error": "AssetClass not available"}), 500
+        
+        # Format symbols with name
+        symbols = []
+        for asset in assets:
+            symbol_data = {
+                "symbol": asset.symbol,
+                "name": getattr(asset, 'name', asset.symbol)
+            }
+            # For crypto, also include without /USD suffix
+            if asset_type == 'crypto' and asset.symbol.endswith('/USD'):
+                symbol_data["symbol_short"] = asset.symbol.replace('/USD', '')
+            symbols.append(symbol_data)
+        
+        # Sort by symbol
+        symbols.sort(key=lambda x: x['symbol'])
+        
+        return jsonify({"symbols": symbols})
+    except Exception as e:
+        logger.error(f"Error fetching available symbols: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/asset-info/<symbol>', methods=['GET'])
+@require_auth
+def get_asset_info(symbol: str):
+    """Get asset information (name/company) for a symbol"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        symbol = symbol.upper()
+        # Try symbol as-is first
+        try:
+            asset = manager.trading_client.get_asset(symbol)
+        except:
+            # Try with /USD for crypto
+            if not symbol.endswith('/USD'):
+                try:
+                    asset = manager.trading_client.get_asset(f"{symbol}/USD")
+                    symbol = f"{symbol}/USD"
+                except:
+                    return jsonify({"error": "Asset not found"}), 404
+            else:
+                return jsonify({"error": "Asset not found"}), 404
+        
+        if not asset:
+            return jsonify({"error": "Asset not found"}), 404
+        
+        # Get asset name
+        name = getattr(asset, 'name', None) or getattr(asset, 'display_symbol', symbol) or symbol
+        
+        return jsonify({
+            "symbol": symbol,
+            "name": name
+        })
+    except Exception as e:
+        logger.error(f"Error fetching asset info for {symbol}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/available-orders-for-linking', methods=['GET'])
+@require_auth
+def get_available_orders_for_linking():
+    """Get list of available Alpaca orders that can be linked to GTT orders"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        # Get all orders from Alpaca
+        try:
+            if QueryOrderStatus:
+                orders_request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500)
+            else:
+                orders_request = GetOrdersRequest(limit=500)
+            alpaca_orders = manager.trading_client.get_orders(orders_request)
+        except Exception as e:
+            logger.error(f"Error fetching Alpaca orders: {e}")
+            return jsonify({"error": str(e)}), 500
+        
+        # Get already linked order IDs
+        linked_order_ids = set()
+        for symbol in manager.db.get_all_symbols():
+            db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
+            for db_order in db_orders:
+                if db_order.order_id:
+                    linked_order_ids.add(db_order.order_id)
+        
+        # Format orders for frontend
+        available_orders = []
+        for order in alpaca_orders:
+            # Include all orders regardless of status (filled, cancelled, etc.)
+            is_linked = order.id in linked_order_ids
+            
+            order_data = {
+                "id": order.id,
+                "symbol": order.symbol,
+                "side": order.side.value if hasattr(order.side, 'value') else str(order.side),
+                "quantity": float(order.qty) if hasattr(order, 'qty') and order.qty is not None else 0,
+                "limit_price": float(order.limit_price) if hasattr(order, 'limit_price') and order.limit_price is not None else None,
+                "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
+                "created_at": order.created_at.isoformat() if hasattr(order.created_at, 'isoformat') else str(order.created_at),
+                "is_linked": is_linked
+            }
+            
+            available_orders.append(order_data)
+        
+        # Sort by created_at DESC (most recent first)
+        available_orders.sort(key=lambda x: x['created_at'], reverse=True)
+        
+        return jsonify({"orders": available_orders})
+    except Exception as e:
+        logger.error(f"Error getting available orders: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
