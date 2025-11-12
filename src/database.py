@@ -150,7 +150,7 @@ class GTTOrderDatabase:
                 cursor.execute("""
                     INSERT OR IGNORE INTO global_settings (key, value, updated_at)
                     VALUES ('global_mode_stock', ?, ?)
-                """, (old_mode['value'], datetime.utcnow().isoformat()))
+                """, (old_mode[0], datetime.utcnow().isoformat()))
                 cursor.execute("DELETE FROM global_settings WHERE key = 'global_mode'")
             
             # Add index for asset_type

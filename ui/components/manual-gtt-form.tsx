@@ -38,7 +38,6 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
   
   // Price fetching
   const [isFetchingPrice, setIsFetchingPrice] = useState(false)
-  const priceIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // Load symbols when asset type changes
   useEffect(() => {
@@ -71,9 +70,9 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
     setFilteredSymbols(filtered)
   }, [symbol, symbolOptions])
 
-  // Auto-fill company when symbol is selected
+  // Auto-fill company when symbol is selected or changes
   useEffect(() => {
-    if (symbol.trim() && !company.trim()) {
+    if (symbol.trim()) {
       const fetchCompany = async () => {
         try {
           // Normalize symbol for API call
@@ -84,58 +83,20 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
           const info = await getAssetInfo(apiBaseUrl, apiSymbol)
           setCompany(info.name)
         } catch (err) {
-          // Silently fail - user can fill manually
+          // Set error but don't prevent form submission - company will be empty
+          console.error('Failed to fetch company name:', err)
+          setCompany("") // Clear company if fetch fails
         }
       }
       fetchCompany()
-    }
-  }, [symbol, company, assetType, apiBaseUrl])
-
-  // Auto-update price every 5 seconds if symbol is set
-  useEffect(() => {
-    if (symbol.trim() && assetType) {
-      const fetchPrice = async () => {
-        try {
-          // Normalize symbol for price fetching
-          let priceSymbol = symbol.trim().toUpperCase()
-          if (assetType === 'crypto' && !priceSymbol.includes('/')) {
-            priceSymbol = `${priceSymbol}/USD`
-          }
-          const currentPrice = await getCurrentPrice(apiBaseUrl, priceSymbol)
-          if (currentPrice !== null) {
-            setPrice(currentPrice.toFixed(2))
-          }
-        } catch (err) {
-          // Silently fail
-        }
-      }
-      
-      // Fetch immediately
-      fetchPrice()
-      
-      // Then every 5 seconds
-      priceIntervalRef.current = setInterval(fetchPrice, 5000)
-      
-      return () => {
-        if (priceIntervalRef.current) {
-          clearInterval(priceIntervalRef.current)
-        }
-      }
+      // Clear price when symbol changes (user must click refresh to get new price)
+      setPrice("")
     } else {
-      if (priceIntervalRef.current) {
-        clearInterval(priceIntervalRef.current)
-      }
+      setCompany("") // Clear company when symbol is cleared
+      setPrice("") // Clear price when symbol is cleared
     }
   }, [symbol, assetType, apiBaseUrl])
 
-  // Cleanup interval on unmount
-  useEffect(() => {
-    return () => {
-      if (priceIntervalRef.current) {
-        clearInterval(priceIntervalRef.current)
-      }
-    }
-  }, [])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -161,10 +122,7 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
       setSymbol(selectedSymbol)
     }
     setShowSymbolDropdown(false)
-    // Trigger company fetch with full symbol
-    getAssetInfo(apiBaseUrl, selectedSymbol)
-      .then(info => setCompany(info.name))
-      .catch(() => {})
+    // Company will be auto-populated by useEffect when symbol changes
   }
 
   const handleFetchPrice = async () => {
@@ -174,6 +132,7 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
     }
     
     setIsFetchingPrice(true)
+    setError(null)
     try {
       // Normalize symbol for price fetching
       let priceSymbol = symbol.trim().toUpperCase()
@@ -181,14 +140,16 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
         priceSymbol = `${priceSymbol}/USD`
       }
       const currentPrice = await getCurrentPrice(apiBaseUrl, priceSymbol)
-      if (currentPrice !== null) {
+      if (currentPrice !== null && currentPrice > 0) {
         setPrice(currentPrice.toFixed(2))
         setError(null)
       } else {
-        setError("Could not fetch current price")
+        setError(`No price data available for ${priceSymbol}. The symbol may not be trading or market data is unavailable.`)
       }
     } catch (err: any) {
-      setError(err.message || "Failed to fetch price")
+      // Use the detailed error message from getCurrentPrice
+      const errorMessage = err.message || "Failed to fetch price"
+      setError(errorMessage)
     } finally {
       setIsFetchingPrice(false)
     }
@@ -204,7 +165,7 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
       return
     }
     if (!company.trim()) {
-      setError("Company is required")
+      setError("Company name could not be loaded. Please try selecting the symbol again.")
       return
     }
     const amountNum = parseFloat(amount)
@@ -315,15 +276,13 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="company" className="text-xs">Company *</Label>
-            <Input
+            <Label htmlFor="company" className="text-xs">Company</Label>
+            <div 
               id="company"
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-              placeholder="Apple Inc."
-              className="h-8 text-sm"
-              required
-            />
+              className="h-8 px-3 py-1.5 text-sm bg-muted/50 border border-border rounded-md flex items-center text-muted-foreground"
+            >
+              {company || (symbol.trim() ? "Loading..." : "Select a symbol")}
+            </div>
           </div>
         </div>
 
@@ -366,9 +325,6 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
                 <RefreshCw className={`h-3 w-3 ${isFetchingPrice ? 'animate-spin' : ''}`} />
               </Button>
             </div>
-            {symbol.trim() && price && (
-              <p className="text-xs text-muted-foreground">Auto-updating every 5 seconds</p>
-            )}
           </div>
         </div>
 

@@ -4,7 +4,6 @@ Flask API server to expose GTT order data to the web UI
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import json
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
@@ -13,7 +12,7 @@ import jwt
 import bcrypt
 from .gtt_monitor import GTTOrderManager, SymbolLadder, SequentialOrder
 from alpaca.trading.requests import GetOrdersRequest
-from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
+from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest, StockLatestQuoteRequest, CryptoLatestQuoteRequest, StockLatestTradeRequest, CryptoLatestTradeRequest
 from alpaca.data.timeframe import TimeFrame
 try:
     from alpaca.trading.enums import QueryOrderStatus, AssetClass
@@ -2490,6 +2489,265 @@ def get_asset_info(symbol: str):
     except Exception as e:
         logger.error(f"Error fetching asset info for {symbol}: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+def _get_last_price_from_trade(manager: GTTOrderManager, api_symbol: str, asset_type: str, original_symbol: str):
+    """Helper function to get last price from latest trade (recommended method when market is closed)"""
+    try:
+        if asset_type == 'crypto':
+            request = CryptoLatestTradeRequest(symbol_or_symbols=[api_symbol])
+            trades = manager.crypto_data_client.get_crypto_latest_trade(request)
+        else:
+            request = StockLatestTradeRequest(symbol_or_symbols=[api_symbol])
+            trades = manager.data_client.get_stock_latest_trade(request)
+        
+        if api_symbol in trades and trades[api_symbol]:
+            trade = trades[api_symbol]
+            if hasattr(trade, 'price') and trade.price:
+                logger.info(f"Using latest trade price for {original_symbol}: {trade.price}")
+                return jsonify({"price": float(trade.price), "symbol": original_symbol})
+        
+        # If no trade found, fall back to bars
+        raise Exception("No latest trade available")
+    except Exception as e:
+        logger.debug(f"Could not get latest trade for {original_symbol}: {e}, falling back to bars")
+        raise
+
+
+def _get_last_price_from_bars(manager: GTTOrderManager, api_symbol: str, asset_type: str, original_symbol: str):
+    """Helper function to get last price from historical bars (fallback when latest trade is unavailable)"""
+    try:
+        # Fetch recent bars to get the latest price
+        start_date = datetime.now() - timedelta(days=1)
+        
+        if asset_type == 'crypto':
+            request_params = CryptoBarsRequest(
+                symbol_or_symbols=[api_symbol],
+                timeframe=TimeFrame.Minute,  # Use minute bars for most recent data
+                start=start_date,
+                limit=100  # Get multiple bars to ensure we get the latest
+            )
+            bars = manager.crypto_data_client.get_crypto_bars(request_params)
+        else:
+            request_params = StockBarsRequest(
+                symbol_or_symbols=[api_symbol],
+                timeframe=TimeFrame.Minute,  # Use minute bars for most recent data
+                start=start_date,
+                limit=100  # Get multiple bars to ensure we get the latest
+            )
+            bars = manager.data_client.get_stock_bars(request_params)
+        
+        # Get the latest bar (last in the list)
+        if bars and hasattr(bars, 'data') and api_symbol in bars.data and len(bars.data[api_symbol]) > 0:
+            latest_bar = bars.data[api_symbol][-1]  # Get the last bar (most recent)
+            if latest_bar.close:
+                logger.info(f"Using last bar close price for {original_symbol}: {latest_bar.close}")
+                return jsonify({"price": float(latest_bar.close), "symbol": original_symbol})
+        
+        # If no minute bars found, try with daily bars (might have more historical data)
+        if asset_type == 'crypto':
+            request_params = CryptoBarsRequest(
+                symbol_or_symbols=[api_symbol],
+                timeframe=TimeFrame.Day,
+                start=datetime.now() - timedelta(days=7),  # Last 7 days
+                limit=10
+            )
+            bars = manager.crypto_data_client.get_crypto_bars(request_params)
+        else:
+            request_params = StockBarsRequest(
+                symbol_or_symbols=[api_symbol],
+                timeframe=TimeFrame.Day,
+                start=datetime.now() - timedelta(days=7),  # Last 7 days
+                limit=10
+            )
+            bars = manager.data_client.get_stock_bars(request_params)
+        
+        if bars and hasattr(bars, 'data') and api_symbol in bars.data and len(bars.data[api_symbol]) > 0:
+            latest_bar = bars.data[api_symbol][-1]  # Get the last bar (most recent)
+            if latest_bar.close:
+                logger.info(f"Using last daily bar close price for {original_symbol}: {latest_bar.close}")
+                return jsonify({"price": float(latest_bar.close), "symbol": original_symbol})
+        
+        # No bars found at all
+        raise Exception(f"No historical price data available for {original_symbol}")
+    except Exception as e:
+        logger.error(f"Error fetching last price from bars for {original_symbol}: {e}")
+        raise
+
+
+@app.route('/api/price/<symbol>', methods=['GET'])
+@require_auth
+def get_price(symbol: str):
+    """Get current price for a single symbol (works for any symbol, not just ones in GTT system)"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        symbol = symbol.upper()
+        normalized_symbol = symbol.replace('/USD', '')
+        
+        # Try to detect asset type from symbol format first (fastest)
+        if '/USD' in symbol:
+            asset_type = 'crypto'
+            api_symbol = symbol
+        elif normalized_symbol in ['BTC', 'ETH', 'DOGE', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'LTC', 'BCH', 'XRP', 'ETC']:
+            # Common crypto symbols without /USD suffix
+            asset_type = 'crypto'
+            api_symbol = f"{normalized_symbol}/USD"
+        else:
+            # Try to verify by checking asset directly from Alpaca
+            try:
+                asset = manager.trading_client.get_asset(normalized_symbol)
+                if asset:
+                    asset_class = None
+                    if hasattr(asset, 'asset_class'):
+                        asset_class = asset.asset_class
+                    elif hasattr(asset, 'class'):
+                        asset_class = getattr(asset, 'class', None)
+                    
+                    if asset_class:
+                        if AssetClass and asset_class == AssetClass.CRYPTO:
+                            asset_type = 'crypto'
+                            api_symbol = f"{normalized_symbol}/USD"
+                        elif isinstance(asset_class, str) and 'crypto' in str(asset_class).lower():
+                            asset_type = 'crypto'
+                            api_symbol = f"{normalized_symbol}/USD"
+                        else:
+                            asset_type = 'stock'
+                            api_symbol = normalized_symbol
+                    else:
+                        # No asset_class found, default to stock
+                        asset_type = 'stock'
+                        api_symbol = normalized_symbol
+                else:
+                    asset_type = 'stock'
+                    api_symbol = normalized_symbol
+            except Exception as e:
+                # If we can't determine, default to stock
+                logger.debug(f"Could not determine asset type for {symbol} from Alpaca: {e}, defaulting to stock")
+                asset_type = 'stock'
+                api_symbol = normalized_symbol
+        
+        # Fetch price based on asset type
+        if asset_type == 'crypto':
+            try:
+                request = CryptoLatestQuoteRequest(symbol_or_symbols=[api_symbol])
+                quotes = manager.crypto_data_client.get_crypto_latest_quote(request)
+                
+                if api_symbol in quotes:
+                    quote = quotes[api_symbol]
+                    # For buy orders, use ASK price (what we pay), not BID or mid price
+                    if quote.ask_price:
+                        return jsonify({"price": float(quote.ask_price), "symbol": symbol})
+                    elif quote.bid_price:
+                        logger.warning(f"Using BID price for {symbol} - ASK price not available")
+                        return jsonify({"price": float(quote.bid_price), "symbol": symbol})
+                    else:
+                        # No quote data - try to get last price from latest trade (recommended)
+                        logger.debug(f"No quote data for {symbol}, trying to fetch latest trade price")
+                        try:
+                            return _get_last_price_from_trade(manager, api_symbol, asset_type, symbol)
+                        except:
+                            # Fallback to bars if trade is unavailable
+                            logger.debug(f"Latest trade unavailable, falling back to bars for {symbol}")
+                            return _get_last_price_from_bars(manager, api_symbol, asset_type, symbol)
+                else:
+                    # Symbol not in quotes - try to get last price from latest trade
+                    logger.debug(f"Symbol {symbol} not in quotes, trying to fetch latest trade price")
+                    try:
+                        return _get_last_price_from_trade(manager, api_symbol, asset_type, symbol)
+                    except:
+                        # Fallback to bars if trade is unavailable
+                        logger.debug(f"Latest trade unavailable, falling back to bars for {symbol}")
+                        return _get_last_price_from_bars(manager, api_symbol, asset_type, symbol)
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Error fetching crypto price for {symbol}: {e}")
+                # Try to get last price from latest trade as fallback
+                try:
+                    logger.debug(f"Trying to fetch latest trade price as fallback for {symbol}")
+                    return _get_last_price_from_trade(manager, api_symbol, asset_type, symbol)
+                except:
+                    # Try bars as last resort
+                    try:
+                        logger.debug(f"Trying to fetch last bar price as fallback for {symbol}")
+                        return _get_last_price_from_bars(manager, api_symbol, asset_type, symbol)
+                    except Exception as bar_err:
+                        # All methods failed - return original error
+                        if 'not found' in error_msg.lower() or '404' in error_msg.lower():
+                            return jsonify({"error": f"Symbol '{symbol}' not found. Please verify the symbol is correct and try again."}), 404
+                        elif 'timeout' in error_msg.lower():
+                            return jsonify({"error": f"Request timed out while fetching price for {symbol}. Please try again."}), 500
+                        elif 'network' in error_msg.lower() or 'connection' in error_msg.lower():
+                            return jsonify({"error": f"Network error: Unable to connect to price service for {symbol}. Please check your connection and try again."}), 500
+                        else:
+                            return jsonify({"error": f"Error fetching price for {symbol}: {error_msg}"}), 500
+        else:
+            # Fetch stock price
+            try:
+                request = StockLatestQuoteRequest(symbol_or_symbols=[api_symbol])
+                quotes = manager.data_client.get_stock_latest_quote(request)
+                
+                if api_symbol in quotes:
+                    quote = quotes[api_symbol]
+                    # For buy orders, use ASK price (what we pay), not BID or mid price
+                    if quote.ask_price:
+                        return jsonify({"price": float(quote.ask_price), "symbol": symbol})
+                    elif quote.bid_price:
+                        logger.warning(f"Using BID price for {symbol} - ASK price not available")
+                        return jsonify({"price": float(quote.bid_price), "symbol": symbol})
+                    else:
+                        # No quote data - try to get last price from latest trade (recommended)
+                        logger.debug(f"No quote data for {symbol}, trying to fetch latest trade price")
+                        try:
+                            return _get_last_price_from_trade(manager, api_symbol, asset_type, symbol)
+                        except:
+                            # Fallback to bars if trade is unavailable
+                            logger.debug(f"Latest trade unavailable, falling back to bars for {symbol}")
+                            return _get_last_price_from_bars(manager, api_symbol, asset_type, symbol)
+                else:
+                    # Symbol not in quotes - try to get last price from latest trade
+                    logger.debug(f"Symbol {symbol} not in quotes, trying to fetch latest trade price")
+                    try:
+                        return _get_last_price_from_trade(manager, api_symbol, asset_type, symbol)
+                    except:
+                        # Fallback to bars if trade is unavailable
+                        logger.debug(f"Latest trade unavailable, falling back to bars for {symbol}")
+                        return _get_last_price_from_bars(manager, api_symbol, asset_type, symbol)
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Error fetching stock price for {symbol}: {e}")
+                # Try to get last price from latest trade as fallback
+                try:
+                    logger.debug(f"Trying to fetch latest trade price as fallback for {symbol}")
+                    return _get_last_price_from_trade(manager, api_symbol, asset_type, symbol)
+                except:
+                    # Try bars as last resort
+                    try:
+                        logger.debug(f"Trying to fetch last bar price as fallback for {symbol}")
+                        return _get_last_price_from_bars(manager, api_symbol, asset_type, symbol)
+                    except Exception as bar_err:
+                        # All methods failed - return original error
+                        if 'not found' in error_msg.lower() or '404' in error_msg.lower():
+                            return jsonify({"error": f"Symbol '{symbol}' not found. Please verify the symbol is correct and try again."}), 404
+                        elif 'timeout' in error_msg.lower():
+                            return jsonify({"error": f"Request timed out while fetching price for {symbol}. Please try again."}), 500
+                        elif 'network' in error_msg.lower() or 'connection' in error_msg.lower():
+                            return jsonify({"error": f"Network error: Unable to connect to price service for {symbol}. Please check your connection and try again."}), 500
+                        else:
+                            return jsonify({"error": f"Error fetching price for {symbol}: {error_msg}"}), 500
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error fetching price for {symbol}: {e}")
+        # Provide more specific error messages for common issues
+        if 'not found' in error_msg.lower() or '404' in error_msg.lower():
+            return jsonify({"error": f"Symbol '{symbol}' not found. Please verify the symbol is correct and try again."}), 404
+        elif 'timeout' in error_msg.lower():
+            return jsonify({"error": f"Request timed out while fetching price for {symbol}. Please try again."}), 500
+        elif 'network' in error_msg.lower() or 'connection' in error_msg.lower():
+            return jsonify({"error": f"Network error: Unable to connect to price service for {symbol}. Please check your connection and try again."}), 500
+        else:
+            return jsonify({"error": f"Error fetching price for {symbol}: {error_msg}"}), 500
 
 
 @app.route('/api/available-orders-for-linking', methods=['GET'])

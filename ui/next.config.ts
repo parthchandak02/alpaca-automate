@@ -6,8 +6,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Completely disable dev indicator in development mode
   devIndicators: false,
-  // Static export for Cloudflare Pages
-  output: 'export',
+  // Note: output: 'export' is removed because middleware requires a server
+  // If static export is needed, authentication must be handled differently
   trailingSlash: true,
 };
 

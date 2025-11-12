@@ -310,7 +310,7 @@ export default function OrdersPage() {
     // Set a hard timeout to prevent infinite loading
     const hardTimeout = setTimeout(() => {
       if (isMounted && !authResolved) {
-        console.error('Auth check exceeded maximum time, redirecting to login')
+        // Silently redirect if auth check takes too long
         authResolved = true
         setIsAuthenticated(false)
         router.push('/login')
@@ -357,25 +357,31 @@ export default function OrdersPage() {
         clearTimeout(timeoutId)
         if (!isMounted) return
         
-        // Log error for debugging
+        // AbortError is expected when timeout fires - don't log as error
+        if (err instanceof Error && err.name === 'AbortError') {
+          // Request was aborted due to timeout - this is expected behavior
+          // Only retry if we haven't exceeded max retries
+          if (retryCount < maxRetries) {
+            retryCount++
+            console.log(`Request timeout, retrying (${retryCount}/${maxRetries})...`)
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+            if (isMounted) {
+              checkAuth()
+              return
+            }
+          }
+          return
+        }
+        
+        // Log other errors for debugging
         console.error('Auth check failed:', err)
         
         // If it's a network error (not abort), check if we should retry
-        const isNetworkError = err instanceof TypeError || 
-                              (err instanceof Error && err.name !== 'AbortError')
+        const isNetworkError = err instanceof TypeError
         
         if (isNetworkError && retryCount < maxRetries) {
           retryCount++
           console.log(`Network error, retrying (${retryCount}/${maxRetries})...`)
-          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
-          if (isMounted) {
-            checkAuth()
-            return
-          }
-        } else if (err instanceof Error && err.name === 'AbortError' && retryCount < maxRetries) {
-          // Timeout error - retry
-          retryCount++
-          console.log(`Request timeout, retrying (${retryCount}/${maxRetries})...`)
           await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
           if (isMounted) {
             checkAuth()
@@ -1600,8 +1606,13 @@ export default function OrdersPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => handleStartEdit(order.symbol, order.order_index - 1, 'amount', order.amount)}
+                className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity relative z-10"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  e.preventDefault()
+                  handleStartEdit(order.symbol, order.order_index - 1, 'amount', order.amount)
+                }}
+                type="button"
               >
                 <Edit2 className="h-3 w-3" />
               </Button>
@@ -1659,37 +1670,24 @@ export default function OrdersPage() {
         
         return (
           <div 
-            className={`flex items-center gap-1 group transition-colors cursor-pointer ${
-              isHighlighted ? 'bg-primary/20 rounded px-1 py-0.5' : ''
-            }`}
+            className="flex items-center gap-1 group"
             data-order-price={`${order.symbol}-${order.price.toFixed(2)}`}
             data-order-index={order.order_index}
-            onMouseEnter={() => {
-              setHighlightedPrices(prev => ({ ...prev, [order.symbol]: order.price }))
-              setHighlightedOrderIndices(prev => ({ ...prev, [order.symbol]: order.order_index }))
-            }}
-            onMouseLeave={() => {
-              setHighlightedPrices(prev => ({ ...prev, [order.symbol]: null }))
-              setHighlightedOrderIndices(prev => ({ ...prev, [order.symbol]: null }))
-            }}
-            onClick={() => {
-              // Scroll to chart line - find the chart container and scroll to it
-              const chartContainer = document.querySelector(`[data-chart-symbol="${order.symbol}"]`)
-              if (chartContainer) {
-                chartContainer.scrollIntoView({ behavior: 'smooth', block: 'center' })
-              }
-            }}
           >
-            <span className={`tabular-nums text-sm ${isHighlighted ? 'font-semibold' : ''}`}>{formatCurrency(order.price)}</span>
+            <span className={`tabular-nums text-sm ${isHighlighted ? 'font-semibold' : ''}`}>
+              {formatCurrency(order.price)}
+            </span>
             {canEdit && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity relative z-10"
                 onClick={(e) => {
                   e.stopPropagation()
+                  e.preventDefault()
                   handleStartEdit(order.symbol, order.order_index - 1, 'price', order.price)
                 }}
+                type="button"
               >
                 <Edit2 className="h-3 w-3" />
               </Button>

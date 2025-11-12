@@ -1969,7 +1969,8 @@ class GTTOrderManager:
             ladder = self.ladders.get(symbol)
             if ladder and ladder.asset_type == 'crypto':
                 # Convert crypto symbol to Alpaca format (BTC -> BTC/USD)
-                crypto_symbol = f"{symbol}/USD"
+                # Check if symbol already has /USD suffix to avoid BTC/USD/USD
+                crypto_symbol = symbol if symbol.endswith('/USD') else f"{symbol}/USD"
                 crypto_symbols.append(crypto_symbol)
                 crypto_symbol_map[crypto_symbol] = symbol
             else:

@@ -127,13 +127,90 @@ export async function getAssetInfo(apiBaseUrl: string, symbol: string): Promise<
 }
 
 export async function getCurrentPrice(apiBaseUrl: string, symbol: string): Promise<number | null> {
-  const res = await fetch(`${apiBaseUrl}/api/prices`, {
-    credentials: 'include'
-  })
-  if (!res.ok) {
-    return null
+  // First try the single symbol endpoint (works for any symbol)
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/price/${encodeURIComponent(symbol)}`, {
+      credentials: 'include'
+    })
+    
+    if (res.ok) {
+      const data = await res.json()
+      if (data.price && data.price > 0) {
+        return data.price
+      }
+      // Price is null or 0
+      throw new Error(`No price data available for ${symbol}. The symbol may not be trading or market data is unavailable.`)
+    }
+    
+    // Handle different HTTP status codes
+    const status = res.status
+    let errorData: { error?: string } = {}
+    
+    try {
+      errorData = await res.json()
+    } catch {
+      // Response is not JSON
+    }
+    
+    const errorMessage = errorData.error || ''
+    
+    // Provide specific error messages based on status code and error content
+    if (status === 404) {
+      if (errorMessage.toLowerCase().includes('not found') || errorMessage.toLowerCase().includes('symbol')) {
+        throw new Error(`Symbol "${symbol}" not found. Please verify the symbol is correct and try again.`)
+      } else if (errorMessage.toLowerCase().includes('no price data') || errorMessage.toLowerCase().includes('price data')) {
+        throw new Error(`No price data available for ${symbol}. The market may be closed or this symbol is not currently trading.`)
+      } else {
+        throw new Error(`Symbol "${symbol}" not found or price data unavailable. Please check the symbol and try again.`)
+      }
+    } else if (status === 503) {
+      throw new Error(`Service temporarily unavailable. The price service is not initialized. Please try again in a moment.`)
+    } else if (status === 500) {
+      // Check for specific error messages from the API
+      if (errorMessage.toLowerCase().includes('network') || errorMessage.toLowerCase().includes('connection')) {
+        throw new Error(`Network error: Unable to connect to price service. Please check your connection and try again.`)
+      } else if (errorMessage.toLowerCase().includes('timeout')) {
+        throw new Error(`Request timed out. The price service took too long to respond. Please try again.`)
+      } else if (errorMessage) {
+        throw new Error(`Price service error: ${errorMessage}`)
+      } else {
+        throw new Error(`Server error: Unable to fetch price for ${symbol}. Please try again later.`)
+      }
+    } else {
+      throw new Error(errorMessage || `Failed to fetch price (HTTP ${status}). Please try again.`)
+    }
+  } catch (err: any) {
+    // If it's already an Error with a message, re-throw it
+    if (err instanceof Error && err.message && !err.message.includes('Failed to fetch')) {
+      throw err
+    }
+    
+    // Handle network errors (fetch failures)
+    if (err instanceof TypeError && err.message.includes('fetch')) {
+      throw new Error(`Network error: Unable to connect to the server. Please check your internet connection and try again.`)
+    }
+    
+    // Fallback to prices endpoint (only works for symbols in GTT system)
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/prices`, {
+        credentials: 'include'
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const price = data.prices?.[symbol]
+        if (price && price > 0) {
+          return price
+        }
+      }
+    } catch (fallbackErr) {
+      // Both failed - throw the original error with better message
+      if (err instanceof Error) {
+        throw err
+      }
+    }
+    
+    // If we get here, both endpoints failed
+    throw err instanceof Error ? err : new Error(`Unable to fetch price for ${symbol}. Please verify the symbol and try again.`)
   }
-  const data = await res.json()
-  return data.prices?.[symbol] || null
 }
 
