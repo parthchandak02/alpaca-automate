@@ -850,11 +850,21 @@ def get_account():
         # Use the global trading_mode set when manager was initialized
         global trading_mode
         
+        # Get long_market_value and short_market_value if available
+        long_market_value = 0
+        short_market_value = 0
+        if hasattr(account, 'long_market_value') and account.long_market_value:
+            long_market_value = float(account.long_market_value)
+        if hasattr(account, 'short_market_value') and account.short_market_value:
+            short_market_value = float(account.short_market_value)
+        
         return jsonify({
             "buying_power": float(account.buying_power),
             "cash": float(account.cash),
             "portfolio_value": float(account.portfolio_value),
             "equity": float(account.equity),
+            "long_market_value": long_market_value,
+            "short_market_value": short_market_value,
             "is_paper": trading_mode,
         })
     except Exception as e:

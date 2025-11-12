@@ -225,6 +225,8 @@ interface AccountInfo {
   cash: number
   portfolio_value: number
   equity: number
+  long_market_value?: number
+  short_market_value?: number
   is_paper?: boolean
 }
 
@@ -492,6 +494,41 @@ export default function OrdersPage() {
   const loadingStatus = loadingStatusData || null
   const stockPositions = positionsData?.stocks || []
   const cryptoPositions = positionsData?.crypto || []
+  
+  // Calculate equity from positions
+  const stockEquity = useMemo(() => {
+    return stockPositions.reduce((sum: number, pos: Position) => sum + (pos.market_value || 0), 0)
+  }, [stockPositions])
+  
+  const cryptoEquity = useMemo(() => {
+    return cryptoPositions.reduce((sum: number, pos: Position) => sum + (pos.market_value || 0), 0)
+  }, [cryptoPositions])
+  
+  // Calculate total positions value for verification
+  const totalPositionsValue = useMemo(() => {
+    return stockEquity + cryptoEquity
+  }, [stockEquity, cryptoEquity])
+  
+  // Verify against Alpaca's long_market_value if available
+  // Note: According to Alpaca API: equity = cash + long_market_value + short_market_value - memoposts
+  // So: Total Equity = Cash + Long Market Value + Short Market Value - memoposts
+  // Our Stock Equity + Crypto Equity should equal long_market_value (if no short positions)
+  // Debug logging to verify calculation
+  if (account && account.long_market_value !== undefined && typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    const calculatedLongMarketValue = totalPositionsValue
+    const alpacaLongMarketValue = account.long_market_value || 0
+    const difference = Math.abs(calculatedLongMarketValue - alpacaLongMarketValue)
+    if (difference > 0.01) {
+      console.warn('⚠️ Equity calculation mismatch:', {
+        calculatedFromPositions: calculatedLongMarketValue,
+        alpacaLongMarketValue: alpacaLongMarketValue,
+        difference: difference,
+        stockEquity,
+        cryptoEquity,
+        totalPositionsValue
+      })
+    }
+  }
   
   // Helper function to get Alpaca order URL
   const getAlpacaOrderUrl = (orderId: string): string => {
@@ -2326,18 +2363,83 @@ export default function OrdersPage() {
     },
   ]
 
+  // Helper function to check if an order is actually fully filled
+  const isOrderFullyFilled = (order: ActiveOrder): boolean => {
+    const status = order.status.toLowerCase()
+    
+    // If status is not "filled", it's not fully filled
+    if (status !== 'filled') {
+      return false
+    }
+    
+    // Check if order was placed with notional (USD amount) or quantity
+    const hasNotional = order.notional !== null && order.notional !== undefined && order.notional > 0
+    const hasQuantity = order.quantity !== null && order.quantity !== undefined && order.quantity > 0
+    
+    if (hasNotional) {
+      // Order was placed with USD amount - check filled_notional vs notional
+      const totalNotional = order.notional || 0
+      let filledNotional = order.filled_notional
+      
+      // If filled_notional is not available, try to calculate it from filled_qty and filled_avg_price
+      if ((filledNotional === null || filledNotional === undefined || filledNotional === 0) && 
+          order.filled_qty > 0 && order.filled_avg_price) {
+        filledNotional = order.filled_qty * order.filled_avg_price
+      }
+      
+      filledNotional = filledNotional || 0
+      
+      // Allow small floating point differences (0.01 USD tolerance)
+      return totalNotional > 0 && Math.abs(filledNotional - totalNotional) < 0.01
+    } else if (hasQuantity) {
+      // Order was placed with quantity - check filled_qty vs quantity
+      const totalQty = order.quantity || 0
+      const filledQty = order.filled_qty || 0
+      
+      // Allow small floating point differences (0.00000001 tolerance for crypto)
+      return totalQty > 0 && Math.abs(filledQty - totalQty) < 0.00000001
+    } else {
+      // Fallback: if we have calculated_qty (for notional orders), use that
+      const totalQty = order.calculated_qty || order.quantity || 0
+      const filledQty = order.filled_qty || 0
+      
+      // If we have a calculated_qty, compare filled_qty to it
+      if (order.calculated_qty && order.calculated_qty > 0) {
+        return Math.abs(filledQty - order.calculated_qty) < 0.00000001
+      }
+      
+      // Last resort: if filled_qty is 0, it's definitely not filled
+      return totalQty > 0 && filledQty > 0 && Math.abs(filledQty - totalQty) < 0.00000001
+    }
+  }
+
   // Categorize orders by status
   const categorizeOrders = (orders: ActiveOrder[]) => {
     // Active = orders that are placed and live (buying power locked) but not yet fully executed
     const activeStatuses = ['new', 'accepted', 'pending_new', 'pending_replace', 'accepted_for_bidding', 'stopped', 'suspended', 'partially_filled']
-    // Completed = orders that are fully executed (filled is the terminal status)
+    // Completed = orders that are fully executed (filled is the terminal status AND actually filled)
     const completedStatuses = ['filled']
     // Cancelled = orders that were cancelled, expired, or rejected
     const cancelledStatuses = ['canceled', 'cancelled', 'expired', 'pending_cancel', 'replaced', 'rejected']
     
     return {
-      active: orders.filter(order => activeStatuses.includes(order.status.toLowerCase())),
-      completed: orders.filter(order => completedStatuses.includes(order.status.toLowerCase())),
+      // Active: status is active OR status is "filled" but not actually fully filled
+      active: orders.filter(order => {
+        const status = order.status.toLowerCase()
+        if (activeStatuses.includes(status)) {
+          return true
+        }
+        // If status is "filled" but not actually fully filled, treat as active
+        if (completedStatuses.includes(status) && !isOrderFullyFilled(order)) {
+          return true
+        }
+        return false
+      }),
+      // Completed: status is "filled" AND actually fully filled
+      completed: orders.filter(order => {
+        const status = order.status.toLowerCase()
+        return completedStatuses.includes(status) && isOrderFullyFilled(order)
+      }),
       cancelled: orders.filter(order => cancelledStatuses.includes(order.status.toLowerCase())),
     }
   }
@@ -2665,22 +2767,51 @@ export default function OrdersPage() {
           {/* Bottom row: Account Summary - After Status */}
           {account && (
             <Card className="gap-0 py-1 w-full">
-              <CardContent className="p-1.5 sm:p-2">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 sm:gap-3">
+              <CardContent className="p-1.5 sm:p-2 w-full">
+                <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 w-full">
+                  <span className="text-[10px] text-muted-foreground font-medium">Equity Breakdown:</span>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-muted-foreground font-medium">Buying Power</span>
-                    <span className="text-sm font-semibold text-foreground">{formatCurrency(account.buying_power)}</span>
+                    <span className="text-[10px] text-muted-foreground">Cash</span>
+                    <span className="text-xs font-semibold text-foreground">{formatCurrency(account.cash)}</span>
                   </div>
-                  <div className="hidden sm:block h-4 w-px bg-border"></div>
+                  <span className="text-[10px] text-muted-foreground">+</span>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-muted-foreground font-medium">Cash</span>
-                    <span className="text-sm font-semibold text-foreground">{formatCurrency(account.cash)}</span>
+                    <span className="text-[10px] text-muted-foreground">Stock</span>
+                    <span className="text-xs font-semibold text-purple-400">{formatCurrency(stockEquity)}</span>
                   </div>
-                  <div className="hidden sm:block h-4 w-px bg-border"></div>
+                  <span className="text-[10px] text-muted-foreground">+</span>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-muted-foreground font-medium">Equity</span>
-                    <span className="text-sm font-semibold text-foreground">{formatCurrency(account.equity)}</span>
+                    <span className="text-[10px] text-muted-foreground">Crypto</span>
+                    <span className="text-xs font-semibold text-pink-400">{formatCurrency(cryptoEquity)}</span>
                   </div>
+                  <span className="text-[10px] text-muted-foreground">=</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-muted-foreground">Positions</span>
+                    <span className="text-xs font-semibold text-foreground">{formatCurrency(totalPositionsValue)}</span>
+                  </div>
+                  {(account.equity - account.cash - totalPositionsValue) > 0.01 && (
+                    <>
+                      <span className="text-[10px] text-muted-foreground">+</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground">Other</span>
+                        <span className="text-xs font-semibold text-muted-foreground">{formatCurrency(account.equity - account.cash - totalPositionsValue)}</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">=</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground">Total Equity</span>
+                        <span className="text-xs font-semibold text-foreground">{formatCurrency(account.equity)}</span>
+                      </div>
+                    </>
+                  )}
+                  {Math.abs(account.equity - account.cash - totalPositionsValue) <= 0.01 && (
+                    <>
+                      <span className="text-[10px] text-muted-foreground">=</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-muted-foreground">Total Equity</span>
+                        <span className="text-xs font-semibold text-foreground">{formatCurrency(account.equity)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
