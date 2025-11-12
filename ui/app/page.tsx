@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label"
 import { StockChart } from "@/components/stock-chart"
 import { ColumnDef } from "@tanstack/react-table"
 import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles, ExternalLink, Download, FileText, AlertTriangle, LogOut, Trash2 } from "lucide-react"
+import { ConfirmationDialog } from "@/components/confirmation-dialog"
 
 // Reusable Icon Tooltip Component
 interface IconTooltipProps {
@@ -789,6 +790,12 @@ export default function OrdersPage() {
   const [availableOrders, setAvailableOrders] = useState<AvailableOrder[]>([])
   const [loadingAvailableOrders, setLoadingAvailableOrders] = useState(false)
   const [showManualForm, setShowManualForm] = useState<{ type: 'stock' | 'crypto' } | null>(null)
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    type: 'order' | 'symbol'
+    symbol: string
+    orderIndex?: number
+    gttOrderId?: number
+  } | null>(null)
   
   // Tooltip state for status icons
   const [tooltipState, setTooltipState] = useState<{
@@ -1799,31 +1806,14 @@ export default function OrdersPage() {
                 size="sm"
                 className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                 disabled={isDeleting}
-                onClick={async (e) => {
+                onClick={(e) => {
                   e.stopPropagation()
-                  if (!confirm(`Delete GTT order #${order.order_index} for ${order.symbol}?`)) {
-                    return
-                  }
-                  addConfirmingButton(deleteButtonKey)
-                  try {
-                    const response = await fetch(`${apiBaseUrl}/api/delete-gtt-order`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      credentials: 'include',
-                      body: JSON.stringify({ gtt_order_id: order.gtt_order_id })
-                    })
-                    const data = await response.json()
-                    if (response.ok) {
-                      onRefresh()
-                    } else {
-                      alert(`Failed to delete order: ${data.error || 'Unknown error'}`)
-                    }
-                  } catch (error) {
-                    console.error('Error deleting order:', error)
-                    alert(`Error deleting order: ${error}`)
-                  } finally {
-                    setTimeout(() => removeConfirmingButton(deleteButtonKey), 1000)
-                  }
+                  setDeleteConfirmation({
+                    type: 'order',
+                    symbol: order.symbol,
+                    orderIndex: order.order_index,
+                    gttOrderId: order.gtt_order_id
+                  })
                 }}
                 title="Delete this GTT order"
               >
@@ -3270,41 +3260,25 @@ export default function OrdersPage() {
                     <AccordionItem key={symbol} value={symbol} className="border-none">
                       <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
                         <CardHeader className="p-1.5 sm:p-2">
-                          <AccordionTrigger className="hover:no-underline py-0 items-start">
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-8 sm:pr-2 gap-3 sm:gap-1">
-                              <div className="text-left flex-1 min-w-0 w-full sm:w-auto flex items-start gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10 flex-shrink-0 mt-0.5"
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    if (!confirm(`Delete all GTT orders for ${symbol}? This cannot be undone.`)) {
-                                      return
-                                    }
-                                    try {
-                                      const response = await fetch(`${apiBaseUrl}/api/delete-symbol-gtt-orders`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        credentials: 'include',
-                                        body: JSON.stringify({ symbol })
-                                      })
-                                      const data = await response.json()
-                                      if (response.ok) {
-                                        refreshData()
-                                      } else {
-                                        alert(`Failed to delete orders: ${data.error || 'Unknown error'}`)
-                                      }
-                                    } catch (error) {
-                                      console.error('Error deleting orders:', error)
-                                      alert(`Error deleting orders: ${error}`)
-                                    }
-                                  }}
-                                  title={`Delete all GTT orders for ${symbol}`}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                                <div>
+                          <div className="flex items-start gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10 flex-shrink-0 mt-0.5"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDeleteConfirmation({
+                                  type: 'symbol',
+                                  symbol: symbol
+                                })
+                              }}
+                              title={`Delete all GTT orders for ${symbol}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                            <AccordionTrigger className="hover:no-underline py-0 items-start flex-1">
+                              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-8 sm:pr-2 gap-3 sm:gap-1">
+                                <div className="text-left flex-1 min-w-0 w-full sm:w-auto">
                                   <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
                                     {symbol}
                                     {isUnavailable && (
@@ -3315,7 +3289,6 @@ export default function OrdersPage() {
                                     {orders[0]?.company}
                                   </CardDescription>
                                 </div>
-                              </div>
                                 
                                 <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-1 sm:ml-1 flex-shrink-0 w-full sm:w-auto items-start sm:items-center">
                                   <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
@@ -3349,6 +3322,7 @@ export default function OrdersPage() {
                                 </div>
                               </div>
                             </AccordionTrigger>
+                          </div>
                         </CardHeader>
                         <AccordionContent>
                           <CardContent className="p-1.5 sm:p-2 space-y-4">
@@ -3902,41 +3876,25 @@ export default function OrdersPage() {
                     <AccordionItem key={symbol} value={symbol} className="border-none">
                       <Card className={`gap-0 py-1 ${isUnavailable ? 'border-red-500/50 bg-red-500/5' : ''}`}>
                         <CardHeader className="p-1.5 sm:p-2">
-                          <AccordionTrigger className="hover:no-underline py-0 items-start">
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-8 sm:pr-2 gap-3 sm:gap-1">
-                              <div className="text-left flex-1 min-w-0 w-full sm:w-auto flex items-start gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10 flex-shrink-0 mt-0.5"
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    if (!confirm(`Delete all GTT orders for ${symbol}? This cannot be undone.`)) {
-                                      return
-                                    }
-                                    try {
-                                      const response = await fetch(`${apiBaseUrl}/api/delete-symbol-gtt-orders`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        credentials: 'include',
-                                        body: JSON.stringify({ symbol })
-                                      })
-                                      const data = await response.json()
-                                      if (response.ok) {
-                                        refreshData()
-                                      } else {
-                                        alert(`Failed to delete orders: ${data.error || 'Unknown error'}`)
-                                      }
-                                    } catch (error) {
-                                      console.error('Error deleting orders:', error)
-                                      alert(`Error deleting orders: ${error}`)
-                                    }
-                                  }}
-                                  title={`Delete all GTT orders for ${symbol}`}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                                <div>
+                          <div className="flex items-start gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10 flex-shrink-0 mt-0.5"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDeleteConfirmation({
+                                  type: 'symbol',
+                                  symbol: symbol
+                                })
+                              }}
+                              title={`Delete all GTT orders for ${symbol}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                            <AccordionTrigger className="hover:no-underline py-0 items-start flex-1">
+                              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-8 sm:pr-2 gap-3 sm:gap-1">
+                                <div className="text-left flex-1 min-w-0 w-full sm:w-auto">
                                   <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
                                     {symbol}
                                     {isUnavailable && (
@@ -3947,7 +3905,6 @@ export default function OrdersPage() {
                                     {orders[0]?.company}
                                   </CardDescription>
                                 </div>
-                              </div>
                                 
                                 <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-1 sm:ml-1 flex-shrink-0 w-full sm:w-auto items-start sm:items-center">
                                   <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
@@ -3981,6 +3938,7 @@ export default function OrdersPage() {
                                 </div>
                               </div>
                             </AccordionTrigger>
+                          </div>
                         </CardHeader>
                         <AccordionContent>
                           <CardContent className="p-1.5 sm:p-2 space-y-4">
@@ -4222,6 +4180,60 @@ export default function OrdersPage() {
           gttOrders={gttOrders}
           onLink={handleLink}
           onClose={() => setLinkingModal(null)}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmation && (
+        <ConfirmationDialog
+          title={deleteConfirmation.type === 'order' 
+            ? `Delete GTT order #${deleteConfirmation.orderIndex} for ${deleteConfirmation.symbol}?`
+            : `Delete all GTT orders for ${deleteConfirmation.symbol}?`}
+          message={deleteConfirmation.type === 'order'
+            ? `This will permanently delete GTT order #${deleteConfirmation.orderIndex} for ${deleteConfirmation.symbol}. This action cannot be undone.`
+            : `This will permanently delete all GTT orders for ${deleteConfirmation.symbol}. This action cannot be undone.`}
+          variant="destructive"
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          onConfirm={async () => {
+            if (!deleteConfirmation) return
+            
+            try {
+              if (deleteConfirmation.type === 'order' && deleteConfirmation.gttOrderId) {
+                const response = await fetch(`${apiBaseUrl}/api/delete-gtt-order`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ gtt_order_id: deleteConfirmation.gttOrderId })
+                })
+                const data = await response.json()
+                if (response.ok) {
+                  refreshData()
+                } else {
+                  alert(`Failed to delete order: ${data.error || 'Unknown error'}`)
+                }
+              } else if (deleteConfirmation.type === 'symbol') {
+                const response = await fetch(`${apiBaseUrl}/api/delete-symbol-gtt-orders`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ symbol: deleteConfirmation.symbol })
+                })
+                const data = await response.json()
+                if (response.ok) {
+                  refreshData()
+                } else {
+                  alert(`Failed to delete orders: ${data.error || 'Unknown error'}`)
+                }
+              }
+            } catch (error) {
+              console.error('Error deleting:', error)
+              alert(`Error deleting: ${error}`)
+            } finally {
+              setDeleteConfirmation(null)
+            }
+          }}
+          onCancel={() => setDeleteConfirmation(null)}
         />
       )}
     </div>
