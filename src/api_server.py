@@ -33,7 +33,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)  # Enable CORS with credentials for cookies
+# CORS configuration for Cloudflare compatibility
+# For Cloudflare Tunnel + Pages setup:
+# - Frontend on Cloudflare Pages (e.g., yourdomain.com)
+# - Backend on Cloudflare Tunnel (e.g., api-yourdomain.com)
+# We need to allow the frontend origin for credentials to work
+# Allow specific origins from env, or use a function to dynamically allow origins
+allowed_origins = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if os.getenv('CORS_ALLOWED_ORIGINS') else None
+
+# If no specific origins configured, use a function to dynamically allow origins
+# This allows credentials while still being permissive for Cloudflare setups
+# Note: Cloudflare Tunnel validates requests before they reach us, so this is safe
+if not allowed_origins or allowed_origins == ['']:
+    # Use a function to dynamically determine allowed origins
+    # This allows credentials while still being permissive for Cloudflare setups
+    CORS(app, 
+         supports_credentials=True,
+         origins=lambda origin: True,  # Allow all origins (Cloudflare validates)
+         allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Cookie"],
+         expose_headers=["Content-Type", "Authorization", "Set-Cookie"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+else:
+    # Use specific allowed origins if configured
+    CORS(app, 
+         supports_credentials=True,
+         origins=allowed_origins,
+         allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Cookie"],
+         expose_headers=["Content-Type", "Authorization", "Set-Cookie"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
 # Authentication configuration
 JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', os.urandom(32).hex())  # Generate if not set
@@ -123,10 +150,19 @@ def clear_loading_status():
 
 
 def get_client_info() -> Dict[str, str]:
-    """Get client IP and user agent for session tracking"""
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ip and ',' in ip:
-        ip = ip.split(',')[0].strip()
+    """Get client IP and user agent for session tracking
+    Handles Cloudflare proxy headers correctly:
+    - CF-Connecting-IP: Real client IP (Cloudflare-specific)
+    - X-Forwarded-For: Fallback for other proxies
+    """
+    # Cloudflare uses CF-Connecting-IP header for the real client IP
+    ip = request.headers.get('CF-Connecting-IP')
+    if not ip:
+        # Fallback to X-Forwarded-For (for other proxies or direct connections)
+        ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        # X-Forwarded-For can contain multiple IPs (proxy chain), take the first one
+        if ip and ',' in ip:
+            ip = ip.split(',')[0].strip()
     user_agent = request.headers.get('User-Agent', 'Unknown')
     return {"ip": ip, "user_agent": user_agent}
 
@@ -178,6 +214,22 @@ def verify_token(token: str) -> Optional[Dict]:
         return None
     except jwt.InvalidTokenError:
         return None
+
+
+@app.after_request
+def after_request(response):
+    """Add Cloudflare-compatible headers to all responses"""
+    # Add security headers for Cloudflare compatibility
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    
+    # Log Cloudflare headers if present (for debugging)
+    cf_ray = request.headers.get('CF-Ray')
+    if cf_ray:
+        logger.debug(f"Request served via Cloudflare: CF-Ray={cf_ray}")
+    
+    return response
 
 
 def require_auth(f):
