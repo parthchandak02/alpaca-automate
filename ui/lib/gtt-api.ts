@@ -103,8 +103,16 @@ export interface SymbolOption {
   symbol_short?: string
 }
 
-export async function getAvailableSymbols(apiBaseUrl: string, assetType: 'stock' | 'crypto'): Promise<SymbolOption[]> {
-  const res = await fetch(`${apiBaseUrl}/api/available-symbols?asset_type=${assetType}`, {
+export async function getAvailableSymbols(apiBaseUrl: string, assetType: 'stock' | 'crypto', search?: string, limit?: number): Promise<SymbolOption[]> {
+  const params = new URLSearchParams({ asset_type: assetType })
+  if (search) {
+    params.append('search', search)
+  }
+  if (limit) {
+    params.append('limit', limit.toString())
+  }
+  
+  const res = await fetch(`${apiBaseUrl}/api/available-symbols?${params.toString()}`, {
     credentials: 'include'
   })
   if (!res.ok) {

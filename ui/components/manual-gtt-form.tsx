@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -29,73 +29,105 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  // Symbol autocomplete
-  const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>([])
-  const [showSymbolDropdown, setShowSymbolDropdown] = useState(false)
+  // Symbol autocomplete with server-side search
   const [filteredSymbols, setFilteredSymbols] = useState<SymbolOption[]>([])
+  const [showSymbolDropdown, setShowSymbolDropdown] = useState(false)
+  const [isLoadingSymbols, setIsLoadingSymbols] = useState(false)
+  const [isLoadingCompany, setIsLoadingCompany] = useState(false)
   const symbolInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const selectedSymbolRef = useRef<string | null>(null) // Track when symbol is selected vs typed
   
   // Price fetching
   const [isFetchingPrice, setIsFetchingPrice] = useState(false)
 
-  // Load symbols when asset type changes
-  useEffect(() => {
-    const loadSymbols = async () => {
-      try {
-        const symbols = await getAvailableSymbols(apiBaseUrl, assetType)
-        setSymbolOptions(symbols)
-        setFilteredSymbols(symbols.slice(0, 50)) // Show first 50 initially
-      } catch (err) {
-        console.error('Failed to load symbols:', err)
-      }
+  // Debounced search function
+  const searchSymbols = useCallback(async (searchTerm: string) => {
+    if (searchTerm.trim().length < 1) {
+      setFilteredSymbols([])
+      return
     }
-    loadSymbols()
-  }, [assetType, apiBaseUrl])
 
-  // Filter symbols as user types
-  useEffect(() => {
-    if (!symbol.trim()) {
-      setFilteredSymbols(symbolOptions.slice(0, 50))
+    setIsLoadingSymbols(true)
+    try {
+      // Use server-side search with limit
+      const symbols = await getAvailableSymbols(apiBaseUrl, assetType, searchTerm, 20)
+      setFilteredSymbols(symbols)
+      setShowSymbolDropdown(symbols.length > 0)
+    } catch (err) {
+      console.error('Failed to search symbols:', err)
+      setFilteredSymbols([])
+    } finally {
+      setIsLoadingSymbols(false)
+    }
+  }, [apiBaseUrl, assetType])
+
+  // Handle symbol input change with debouncing
+  const handleSymbolChange = (value: string) => {
+    setSymbol(value)
+    
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+    
+    // If symbol was selected from dropdown, don't search
+    if (selectedSymbolRef.current === value) {
+      selectedSymbolRef.current = null
       return
     }
     
-    const searchTerm = symbol.toUpperCase()
-    const filtered = symbolOptions.filter(opt => 
-      opt.symbol.toUpperCase().includes(searchTerm) ||
-      opt.name.toUpperCase().includes(searchTerm) ||
-      (opt.symbol_short && opt.symbol_short.toUpperCase().includes(searchTerm))
-    ).slice(0, 20) // Limit to 20 results
-    
-    setFilteredSymbols(filtered)
-  }, [symbol, symbolOptions])
+    // Debounce search - wait 300ms after user stops typing
+    searchTimeoutRef.current = setTimeout(() => {
+      searchSymbols(value)
+    }, 300)
+  }
 
-  // Auto-fill company when symbol is selected or changes
-  useEffect(() => {
-    if (symbol.trim()) {
-      const fetchCompany = async () => {
-        try {
-          // Normalize symbol for API call
-          let apiSymbol = symbol.trim().toUpperCase()
-          if (assetType === 'crypto' && !apiSymbol.includes('/')) {
-            apiSymbol = `${apiSymbol}/USD`
-          }
-          const info = await getAssetInfo(apiBaseUrl, apiSymbol)
-          setCompany(info.name)
-        } catch (err) {
-          // Set error but don't prevent form submission - company will be empty
-          console.error('Failed to fetch company name:', err)
-          setCompany("") // Clear company if fetch fails
-        }
-      }
-      fetchCompany()
-      // Clear price when symbol changes (user must click refresh to get new price)
-      setPrice("")
-    } else {
-      setCompany("") // Clear company when symbol is cleared
-      setPrice("") // Clear price when symbol is cleared
+  // Fetch company info only when symbol is selected from dropdown
+  const fetchCompanyInfo = useCallback(async (symbolValue: string) => {
+    if (!symbolValue.trim()) {
+      setCompany("")
+      return
     }
-  }, [symbol, assetType, apiBaseUrl])
+
+    setIsLoadingCompany(true)
+    try {
+      // Normalize symbol for API call
+      let apiSymbol = symbolValue.trim().toUpperCase()
+      if (assetType === 'crypto' && !apiSymbol.includes('/')) {
+        apiSymbol = `${apiSymbol}/USD`
+      }
+      const info = await getAssetInfo(apiBaseUrl, apiSymbol)
+      setCompany(info.name)
+    } catch (err) {
+      console.error('Failed to fetch company name:', err)
+      setCompany("") // Clear company if fetch fails
+    } finally {
+      setIsLoadingCompany(false)
+    }
+  }, [assetType, apiBaseUrl])
+
+  // Clear search when asset type changes
+  useEffect(() => {
+    setSymbol("")
+    setCompany("")
+    setPrice("")
+    setFilteredSymbols([])
+    setShowSymbolDropdown(false)
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+  }, [assetType])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+    }
+  }, [])
 
 
   // Close dropdown when clicking outside
@@ -114,15 +146,19 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleSymbolSelect = (selectedSymbol: string) => {
+  const handleSymbolSelect = (selectedOption: SymbolOption) => {
     // For crypto, show short form in input but use full form for API
-    if (assetType === 'crypto' && selectedSymbol.endsWith('/USD')) {
-      setSymbol(selectedSymbol.replace('/USD', ''))
-    } else {
-      setSymbol(selectedSymbol)
-    }
+    const displaySymbol = assetType === 'crypto' && selectedOption.symbol_short 
+      ? selectedOption.symbol_short 
+      : selectedOption.symbol
+    
+    selectedSymbolRef.current = displaySymbol
+    setSymbol(displaySymbol)
     setShowSymbolDropdown(false)
-    // Company will be auto-populated by useEffect when symbol changes
+    
+    // Fetch company info immediately when selected
+    fetchCompanyInfo(selectedOption.symbol)
+    setPrice("") // Clear price when symbol changes
   }
 
   const handleFetchPrice = async () => {
@@ -164,8 +200,23 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
       setError("Symbol is required")
       return
     }
+    
+    // If company is not loaded, try to fetch it now (user might have typed symbol manually)
+    if (!company.trim() && symbol.trim()) {
+      setIsLoadingCompany(true)
+      try {
+        await fetchCompanyInfo(symbol)
+        // Wait a moment for state to update
+        await new Promise(resolve => setTimeout(resolve, 100))
+      } catch (err) {
+        // Will be caught below
+      } finally {
+        setIsLoadingCompany(false)
+      }
+    }
+    
     if (!company.trim()) {
-      setError("Company name could not be loaded. Please try selecting the symbol again.")
+      setError("Company name could not be loaded. Please try selecting the symbol from the dropdown.")
       return
     }
     const amountNum = parseFloat(amount)
@@ -245,32 +296,51 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
                 id="symbol"
                 value={symbol}
                 onChange={(e) => {
-                  setSymbol(e.target.value)
-                  setShowSymbolDropdown(true)
+                  handleSymbolChange(e.target.value)
+                  if (e.target.value.trim()) {
+                    setShowSymbolDropdown(true)
+                  }
                 }}
-                onFocus={() => setShowSymbolDropdown(true)}
-                placeholder={assetType === 'crypto' ? "BTC or BTC/USD" : "AAPL"}
+                onFocus={() => {
+                  if (symbol.trim() && filteredSymbols.length > 0) {
+                    setShowSymbolDropdown(true)
+                  }
+                }}
+                placeholder={assetType === 'crypto' ? "Type to search (e.g., BTC)" : "Type to search (e.g., AAPL)"}
                 className="h-8 text-sm pl-8"
                 required
               />
-              {showSymbolDropdown && filteredSymbols.length > 0 && (
+              {showSymbolDropdown && (filteredSymbols.length > 0 || isLoadingSymbols) && (
                 <div
                   ref={dropdownRef}
                   className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-auto"
                 >
-                  {filteredSymbols.map((opt) => (
-                    <button
-                      key={opt.symbol}
-                      type="button"
-                      onClick={() => handleSymbolSelect(opt.symbol)}
-                      className="w-full text-left px-3 py-2 hover:bg-accent text-sm flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="font-medium">{opt.symbol}</div>
-                        <div className="text-xs text-muted-foreground">{opt.name}</div>
-                      </div>
-                    </button>
-                  ))}
+                  {isLoadingSymbols ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground text-center">
+                      Searching...
+                    </div>
+                  ) : filteredSymbols.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground text-center">
+                      No symbols found
+                    </div>
+                  ) : (
+                    filteredSymbols.map((opt) => {
+                      const displaySymbol = assetType === 'crypto' && opt.symbol_short 
+                        ? opt.symbol_short 
+                        : opt.symbol
+                      return (
+                        <button
+                          key={opt.symbol}
+                          type="button"
+                          onClick={() => handleSymbolSelect(opt)}
+                          className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
+                        >
+                          <div className="font-medium">{displaySymbol}</div>
+                          <div className="text-xs text-muted-foreground">{opt.name}</div>
+                        </button>
+                      )
+                    })
+                  )}
                 </div>
               )}
             </div>
@@ -279,9 +349,15 @@ export function ManualGTTForm({ onCancel, onSubmit, defaultAssetType = 'stock', 
             <Label htmlFor="company" className="text-xs">Company</Label>
             <div 
               id="company"
-              className="h-8 px-3 py-1.5 text-sm bg-muted/50 border border-border rounded-md flex items-center text-muted-foreground"
+              className="h-8 px-0 py-1.5 text-sm flex items-center text-foreground"
             >
-              {company || (symbol.trim() ? "Loading..." : "Select a symbol")}
+              {isLoadingCompany ? (
+                <span className="text-muted-foreground">Loading...</span>
+              ) : company ? (
+                <span>{company}</span>
+              ) : (
+                <span className="text-muted-foreground">Select a symbol</span>
+              )}
             </div>
           </div>
         </div>

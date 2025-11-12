@@ -11,7 +11,7 @@ from functools import wraps
 import jwt
 import bcrypt
 from .gtt_monitor import GTTOrderManager, SymbolLadder, SequentialOrder
-from alpaca.trading.requests import GetOrdersRequest
+from alpaca.trading.requests import GetOrdersRequest, GetAssetsRequest
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest, StockLatestQuoteRequest, CryptoLatestQuoteRequest, StockLatestTradeRequest, CryptoLatestTradeRequest
 from alpaca.data.timeframe import TimeFrame
 try:
@@ -835,254 +835,6 @@ def force_fill_order():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/simulate-fill', methods=['POST'])
-@require_auth
-def simulate_fill():
-    """Force place order(s) for a symbol - places current order and advances to next.
-    
-    Currently places the current order only, but designed for future multi-order placement.
-    If order is pending, places it first. Then marks it as filled and auto-places the next order.
-    """
-    if not manager:
-        return jsonify({"error": "Manager not initialized"}), 503
-    
-    try:
-        data = request.get_json()
-        symbol = data.get('symbol', '').upper()
-        
-        if not symbol:
-            return jsonify({"error": "Symbol required"}), 400
-        
-        if symbol not in manager.ladders:
-            return jsonify({"error": f"Symbol {symbol} not found"}), 404
-        
-        ladder = manager.ladders[symbol]
-        current_order = ladder.get_current_order()
-        
-        if not current_order:
-            return jsonify({"error": "No current order"}), 404
-        
-        # If order is pending and hasn't been placed yet, place it first
-        if current_order.status == "pending" and not current_order.order_id:
-            try:
-                # Check account buying power
-                account = manager.trading_client.get_account()
-                buying_power = float(account.buying_power)
-                order_value = current_order.price * current_order.amount
-                
-                if order_value > buying_power:
-                    return jsonify({
-                        "error": f"Insufficient buying power. Required: ${order_value:.2f}, Available: ${buying_power:.2f}"
-                    }), 400
-                
-                # Place limit order first
-                from alpaca.trading.requests import LimitOrderRequest
-                from alpaca.trading.enums import OrderSide, TimeInForce
-                
-                # Format symbol correctly for order placement
-                # For crypto, Alpaca requires symbol/USD format (e.g., BTC/USD)
-                order_symbol = symbol
-                if ladder.asset_type == 'crypto' and not symbol.endswith('/USD'):
-                    order_symbol = f"{symbol}/USD"
-                
-                order_request = LimitOrderRequest(
-                    symbol=order_symbol,
-                    qty=current_order.amount,
-                    side=OrderSide.BUY,
-                    limit_price=current_order.price,
-                    time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
-                )
-                
-                placed_order = manager.trading_client.submit_order(order_data=order_request)
-                current_order.order_id = placed_order.id
-                current_order.status = "placed"
-                
-                # Update database
-                manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
-                manager._invalidate_ladders_cache()
-                
-                logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
-                          f"Limit: ${current_order.price:.2f}, Order ID: {placed_order.id}")
-            except Exception as e:
-                logger.error(f"Error placing order: {e}", exc_info=True)
-                return jsonify({"error": f"Failed to place order: {str(e)}"}), 500
-        
-        # Check if order is already filled
-        if current_order.status == "filled":
-            return jsonify({
-                "error": "Order is already filled",
-                "status": current_order.status
-            }), 400
-        
-        if not current_order.order_id:
-            return jsonify({
-                "error": "Order has not been placed yet (no order_id)",
-                "status": current_order.status
-            }), 400
-        
-        # Simulate fill: mark as filled
-        current_order.status = "filled"
-        
-        # Update database
-        from datetime import datetime
-        filled_at = datetime.utcnow().isoformat()
-        old_index = ladder.current_order_index
-        manager.db.update_order_status(symbol, old_index, "filled", current_order.order_id, filled_at)
-        
-        # Link completed order
-        try:
-            db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
-            if old_index < len(db_orders):
-                gtt_order_id = db_orders[old_index].id
-                manager.db.link_completed_order(gtt_order_id, current_order.order_id, symbol, filled_at=filled_at)
-        except Exception as e:
-            logger.debug(f"Could not link completed order: {e}")
-        
-        logger.info(f"SIMULATED FILL: {symbol} Order {ladder.current_order_index + 1} marked as filled")
-        
-        # Advance to next order
-        ladder.advance_to_next_order()
-        
-        # Update database with new current_order_index
-        manager.db.update_current_order_index(symbol, ladder.current_order_index)
-        manager._invalidate_ladders_cache()
-        
-        # Immediately place the next order (auto-place logic) - only if mode is auto
-        next_order = ladder.get_current_order()
-        next_order_placed = False
-        if next_order and next_order.status == "pending":
-            # Check mode before auto-placing
-            db_orders = manager.db.get_gtt_orders_by_symbol(symbol)
-            next_order_index = ladder.current_order_index
-            individual_mode = None
-            if next_order_index < len(db_orders):
-                individual_mode = db_orders[next_order_index].mode if hasattr(db_orders[next_order_index], 'mode') else None
-            
-            # Get global mode for this asset type
-            asset_type = ladder.asset_type if hasattr(ladder, 'asset_type') else 'stock'
-            global_mode = manager.db.get_global_mode(asset_type=asset_type)
-            effective_mode = individual_mode if individual_mode in ['auto', 'manual'] else global_mode
-            
-            # Only auto-place if mode is auto
-            if effective_mode == 'auto':
-                try:
-                    # Check account buying power
-                    account = manager.trading_client.get_account()
-                    buying_power = float(account.buying_power)
-                    order_value = next_order.price * next_order.amount
-                    
-                    if order_value > buying_power:
-                        logger.warning(f"Insufficient buying power for {symbol}. "
-                                     f"Required: ${order_value:.2f}, Available: ${buying_power:.2f}")
-                        return jsonify({
-                            "success": True,
-                            "message": f"Order {ladder.current_order_index} for {symbol} marked as filled",
-                            "next_order": ladder.current_order_index + 1 if next_order else None,
-                            "next_order_placed": False,
-                            "error": "Insufficient buying power for next order"
-                        })
-                    
-                    # Place limit order
-                    from alpaca.trading.requests import LimitOrderRequest
-                    from alpaca.trading.enums import OrderSide, TimeInForce
-                    
-                    order_request = LimitOrderRequest(
-                        symbol=symbol,
-                        qty=next_order.amount,
-                        side=OrderSide.BUY,
-                        limit_price=next_order.price,
-                        time_in_force=TimeInForce.GTC  # Good Till Cancelled - order stays active until filled or manually cancelled
-                    )
-                    
-                    placed_order = manager.trading_client.submit_order(order_data=order_request)
-                    next_order.order_id = placed_order.id
-                    next_order.status = "placed"
-                    
-                    # Update database
-                    manager.db.update_order_status(symbol, ladder.current_order_index, "placed", placed_order.id)
-                    manager._invalidate_ladders_cache()
-                    
-                    next_order_placed = True
-                    logger.info(f"AUTO-PLACED: {symbol} Order {ladder.current_order_index + 1} - "
-                              f"Limit: ${next_order.price:.2f}, Order ID: {placed_order.id}")
-                except Exception as e:
-                    logger.error(f"Error auto-placing next order: {e}", exc_info=True)
-            else:
-                logger.info(f"SKIP AUTO-PLACE: {symbol} - Order {next_order_index + 1} is in manual mode")
-        
-        return jsonify({
-            "success": True,
-            "message": f"Order {ladder.current_order_index} for {symbol} marked as filled",
-            "next_order": ladder.current_order_index + 1 if next_order else None,
-            "next_order_placed": next_order_placed,
-            "next_order_id": next_order.order_id if next_order_placed else None
-        })
-        
-    except Exception as e:
-        logger.error(f"Error simulating fill: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/cancel-all-orders', methods=['POST'])
-@require_auth
-def cancel_all_orders():
-    """Cancel all active orders for testing purposes"""
-    if not manager:
-        return jsonify({"error": "Manager not initialized"}), 503
-    
-    try:
-        # Get all active orders from Alpaca
-        orders_request = GetOrdersRequest(limit=100)
-        orders = manager.trading_client.get_orders(orders_request)
-        
-        cancelled_count = 0
-        errors = []
-        
-        for order in orders:
-            try:
-                manager.trading_client.cancel_order_by_id(order.id)
-                cancelled_count += 1
-                logger.info(f"Cancelled order: {order.id} ({order.symbol})")
-            except Exception as e:
-                error_msg = f"Failed to cancel {order.id}: {str(e)}"
-                logger.error(error_msg)
-                errors.append(error_msg)
-        
-        # Also reset all GTT order statuses to pending and clear ladders
-        reset_count = 0
-        for symbol, ladder in manager.ladders.items():
-            for idx, order in enumerate(ladder.orders):
-                if order.status != "pending":
-                    order.status = "pending"
-                    order.order_id = None
-                    # Update database
-                    manager.db.update_order_status(symbol, idx, "pending", None)
-                    reset_count += 1
-            # Reset to first order
-            ladder.current_order_index = 0
-            manager.db.update_current_order_index(symbol, 0)
-        
-        # Invalidate cache
-        manager._invalidate_ladders_cache()
-        
-        # Clear all ladders (remove GTT orders from memory)
-        cleared_symbols = list(manager.ladders.keys())
-        manager.ladders.clear()
-        
-        return jsonify({
-            "success": True,
-            "message": f"Cancelled {cancelled_count} order(s), reset {reset_count} GTT order(s), and cleared {len(cleared_symbols)} symbol(s) from memory",
-            "cancelled_count": cancelled_count,
-            "reset_count": reset_count,
-            "cleared_symbols": cleared_symbols,
-            "errors": errors if errors else None
-        })
-        
-    except Exception as e:
-        logger.error(f"Error cancelling orders: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
-
 @app.route('/api/account', methods=['GET'])
 @require_auth
 def get_account():
@@ -1277,38 +1029,6 @@ def send_weekly_summary():
         })
     except Exception as e:
         logger.error(f"Error sending weekly summary: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/test-email', methods=['POST'])
-@require_auth
-def test_email():
-    """Send a test email to verify email configuration is working"""
-    if not manager:
-        return jsonify({"error": "Manager not initialized"}), 503
-    
-    try:
-        from datetime import datetime
-        
-        manager._send_email_notification(
-            title="Test Email",
-            description="This is a test email to verify your email notification configuration is working correctly.",
-            fields=[
-                {
-                    "name": "Test Details",
-                    "value": f"Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nIf you received this email, your email notifications are configured correctly!",
-                    "inline": False
-                }
-            ],
-            footer_text="Alpaca Trading Bot • Test Email"
-        )
-        
-        return jsonify({
-            "success": True,
-            "message": "Test email sent successfully. Check your inbox!"
-        })
-    except Exception as e:
-        logger.error(f"Error sending test email: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -1950,7 +1670,7 @@ def edit_gtt_order():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/chart/<symbol>', methods=['GET'])
+@app.route('/api/chart/<path:symbol>', methods=['GET'])
 @require_auth
 def get_chart_data(symbol: str):
     """Get historical bar data for a symbol
@@ -1962,6 +1682,9 @@ def get_chart_data(symbol: str):
         return jsonify({"error": "Manager not initialized"}), 503
     
     try:
+        # URL decode the symbol in case it was double-encoded
+        from urllib.parse import unquote
+        symbol = unquote(symbol)
         symbol = symbol.upper()
         timeframe_str = request.args.get('timeframe', '1M').upper()
         
@@ -2252,6 +1975,100 @@ def link_order_to_gtt():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/delete-gtt-order', methods=['POST'])
+@require_auth
+def delete_gtt_order():
+    """Delete a single GTT order by ID"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        gtt_order_id = data.get('gtt_order_id')
+        
+        if gtt_order_id is None:
+            return jsonify({"error": "gtt_order_id is required"}), 400
+        
+        # Get order info before deleting
+        order = manager.db.get_gtt_order_by_id(gtt_order_id)
+        if not order:
+            return jsonify({"error": "GTT order not found"}), 404
+        
+        symbol = order.symbol
+        
+        # Delete the order
+        success = manager.db.delete_gtt_order(gtt_order_id)
+        if not success:
+            return jsonify({"error": "Failed to delete GTT order"}), 500
+        
+        # Remove from ladder if it exists
+        if symbol in manager.ladders:
+            ladder = manager.ladders[symbol]
+            # Remove order from ladder (find by matching price/amount)
+            ladder.orders = [o for o in ladder.orders if not (
+                abs(o.price - order.price) < 0.01 and abs(o.amount - order.amount) < 0.01
+            )]
+            # If no orders left, remove ladder
+            if len(ladder.orders) == 0:
+                del manager.ladders[symbol]
+            else:
+                # Recalculate current_order_index if needed
+                if ladder.current_order_index >= len(ladder.orders):
+                    ladder.current_order_index = len(ladder.orders) - 1
+                manager.db.update_current_order_index(symbol, ladder.current_order_index)
+        
+        # Invalidate cache
+        manager._invalidate_ladders_cache()
+        
+        logger.info(f"Deleted GTT order {gtt_order_id} for {symbol}")
+        return jsonify({
+            "success": True,
+            "message": f"GTT order deleted successfully"
+        })
+    except Exception as e:
+        logger.error(f"Error deleting GTT order: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/delete-symbol-gtt-orders', methods=['POST'])
+@require_auth
+def delete_symbol_gtt_orders():
+    """Delete all GTT orders for a symbol"""
+    if not manager:
+        return jsonify({"error": "Manager not initialized"}), 503
+    
+    try:
+        data = request.get_json()
+        symbol = data.get('symbol', '').upper().strip()
+        
+        if not symbol:
+            return jsonify({"error": "symbol is required"}), 400
+        
+        # Check if symbol has orders
+        orders = manager.db.get_gtt_orders_by_symbol(symbol)
+        if not orders:
+            return jsonify({"error": f"No GTT orders found for {symbol}"}), 404
+        
+        # Delete all orders for this symbol
+        manager.db.delete_symbol_orders(symbol)
+        
+        # Remove ladder from memory
+        if symbol in manager.ladders:
+            del manager.ladders[symbol]
+        
+        # Invalidate cache
+        manager._invalidate_ladders_cache()
+        
+        logger.info(f"Deleted all GTT orders for {symbol}")
+        return jsonify({
+            "success": True,
+            "message": f"All GTT orders for {symbol} deleted successfully"
+        })
+    except Exception as e:
+        logger.error(f"Error deleting symbol GTT orders: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/create-gtt-order', methods=['POST'])
 @require_auth
 def create_gtt_order():
@@ -2287,10 +2104,12 @@ def create_gtt_order():
             if asset_type == 'crypto':
                 # For crypto, check if symbol/USD format exists
                 crypto_symbol = symbol if symbol.endswith('/USD') else f"{symbol}/USD"
-                assets = manager.trading_client.get_all_assets(asset_class=AssetClass.CRYPTO)
+                assets_request = GetAssetsRequest(asset_class=AssetClass.CRYPTO)
+                assets = manager.trading_client.get_all_assets(filter=assets_request)
                 is_available = any(a.symbol == crypto_symbol for a in assets)
             else:
-                assets = manager.trading_client.get_all_assets(asset_class=AssetClass.US_EQUITY)
+                assets_request = GetAssetsRequest(asset_class=AssetClass.US_EQUITY)
+                assets = manager.trading_client.get_all_assets(filter=assets_request)
                 is_available = any(a.symbol == symbol for a in assets)
         except Exception as e:
             logger.warning(f"Could not verify asset availability: {e}")
@@ -2405,79 +2224,137 @@ def toggle_global_mode():
 @app.route('/api/available-symbols', methods=['GET'])
 @require_auth
 def get_available_symbols():
-    """Get list of available symbols from Alpaca, filtered by asset type"""
+    """Get list of available symbols from Alpaca, filtered by asset type and optional search query
+    
+    Query parameters:
+    - asset_type: 'stock' or 'crypto' (default: 'stock')
+    - search: Optional search term to filter by symbol or name (case-insensitive)
+    - limit: Maximum number of results (default: 50, max: 200)
+    """
     if not manager:
         return jsonify({"error": "Manager not initialized"}), 503
     
     try:
         asset_type = request.args.get('asset_type', 'stock')  # 'stock' or 'crypto'
+        search_query = request.args.get('search', '').strip().upper()
+        limit = min(int(request.args.get('limit', 50)), 200)  # Cap at 200 for performance
         
         if asset_type == 'crypto':
             if AssetClass:
-                assets = manager.trading_client.get_all_assets(asset_class=AssetClass.CRYPTO)
+                assets_request = GetAssetsRequest(asset_class=AssetClass.CRYPTO)
+                assets = manager.trading_client.get_all_assets(filter=assets_request)
             else:
                 # Fallback: return common crypto symbols
-                return jsonify({
-                    "symbols": [
-                        {"symbol": "BTC/USD", "name": "Bitcoin"},
-                        {"symbol": "ETH/USD", "name": "Ethereum"},
-                        {"symbol": "DOGE/USD", "name": "Dogecoin"},
-                        {"symbol": "SOL/USD", "name": "Solana"},
-                        {"symbol": "ADA/USD", "name": "Cardano"},
+                fallback_symbols = [
+                    {"symbol": "BTC/USD", "name": "Bitcoin"},
+                    {"symbol": "ETH/USD", "name": "Ethereum"},
+                    {"symbol": "DOGE/USD", "name": "Dogecoin"},
+                    {"symbol": "SOL/USD", "name": "Solana"},
+                    {"symbol": "ADA/USD", "name": "Cardano"},
+                ]
+                if search_query:
+                    fallback_symbols = [
+                        s for s in fallback_symbols
+                        if search_query in s['symbol'].upper() or search_query in s['name'].upper()
                     ]
-                })
+                return jsonify({"symbols": fallback_symbols[:limit]})
         else:
             if AssetClass:
-                assets = manager.trading_client.get_all_assets(asset_class=AssetClass.US_EQUITY)
+                assets_request = GetAssetsRequest(asset_class=AssetClass.US_EQUITY)
+                assets = manager.trading_client.get_all_assets(filter=assets_request)
             else:
                 return jsonify({"error": "AssetClass not available"}), 500
         
         # Format symbols with name
         symbols = []
         for asset in assets:
+            symbol_str = asset.symbol
+            name_str = getattr(asset, 'name', asset.symbol) or asset.symbol
+            
+            # Apply search filter if provided
+            if search_query:
+                # Check if search matches symbol or name (case-insensitive)
+                if search_query not in symbol_str.upper() and search_query not in name_str.upper():
+                    continue
+            
             symbol_data = {
-                "symbol": asset.symbol,
-                "name": getattr(asset, 'name', asset.symbol)
+                "symbol": symbol_str,
+                "name": name_str
             }
             # For crypto, also include without /USD suffix
-            if asset_type == 'crypto' and asset.symbol.endswith('/USD'):
-                symbol_data["symbol_short"] = asset.symbol.replace('/USD', '')
+            if asset_type == 'crypto' and symbol_str.endswith('/USD'):
+                symbol_data["symbol_short"] = symbol_str.replace('/USD', '')
             symbols.append(symbol_data)
+            
+            # Early exit if we've reached the limit
+            if len(symbols) >= limit:
+                break
         
-        # Sort by symbol
-        symbols.sort(key=lambda x: x['symbol'])
+        # Sort by symbol (or by relevance if searching)
+        if search_query:
+            # Sort by: exact symbol match first, then symbol starts with, then name contains
+            def sort_key(x):
+                symbol_upper = x['symbol'].upper()
+                name_upper = x['name'].upper()
+                if symbol_upper == search_query:
+                    return (0, symbol_upper)
+                elif symbol_upper.startswith(search_query):
+                    return (1, symbol_upper)
+                elif name_upper.startswith(search_query):
+                    return (2, name_upper)
+                else:
+                    return (3, symbol_upper)
+            symbols.sort(key=sort_key)
+        else:
+            # No search - just sort alphabetically
+            symbols.sort(key=lambda x: x['symbol'])
         
-        return jsonify({"symbols": symbols})
+        return jsonify({"symbols": symbols[:limit]})
     except Exception as e:
         logger.error(f"Error fetching available symbols: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/asset-info/<symbol>', methods=['GET'])
+@app.route('/api/asset-info/<path:symbol>', methods=['GET'])
 @require_auth
 def get_asset_info(symbol: str):
-    """Get asset information (name/company) for a symbol"""
+    """Get asset information (name/company) for a symbol
+    
+    Supports symbols with slashes like BTC/USD by using path: converter
+    """
     if not manager:
         return jsonify({"error": "Manager not initialized"}), 503
     
     try:
+        # URL decode the symbol in case it was double-encoded
+        from urllib.parse import unquote
+        symbol = unquote(symbol)
         symbol = symbol.upper()
+        
+        logger.debug(f"Fetching asset info for symbol: {symbol}")
+        
         # Try symbol as-is first
+        asset = None
         try:
             asset = manager.trading_client.get_asset(symbol)
-        except:
-            # Try with /USD for crypto
+            logger.debug(f"Found asset with symbol as-is: {symbol}")
+        except Exception as e:
+            logger.debug(f"Asset lookup failed for {symbol}: {e}")
+            # Try with /USD for crypto if symbol doesn't already have it
             if not symbol.endswith('/USD'):
                 try:
-                    asset = manager.trading_client.get_asset(f"{symbol}/USD")
-                    symbol = f"{symbol}/USD"
-                except:
-                    return jsonify({"error": "Asset not found"}), 404
+                    crypto_symbol = f"{symbol}/USD"
+                    asset = manager.trading_client.get_asset(crypto_symbol)
+                    symbol = crypto_symbol
+                    logger.debug(f"Found asset with /USD suffix: {symbol}")
+                except Exception as e2:
+                    logger.debug(f"Asset lookup also failed for {crypto_symbol}: {e2}")
+                    return jsonify({"error": f"Asset not found: {symbol} or {crypto_symbol}"}), 404
             else:
-                return jsonify({"error": "Asset not found"}), 404
+                return jsonify({"error": f"Asset not found: {symbol}"}), 404
         
         if not asset:
-            return jsonify({"error": "Asset not found"}), 404
+            return jsonify({"error": f"Asset not found: {symbol}"}), 404
         
         # Get asset name
         name = getattr(asset, 'name', None) or getattr(asset, 'display_symbol', symbol) or symbol
@@ -2487,7 +2364,7 @@ def get_asset_info(symbol: str):
             "name": name
         })
     except Exception as e:
-        logger.error(f"Error fetching asset info for {symbol}: {e}")
+        logger.error(f"Error fetching asset info for {symbol}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -2575,7 +2452,7 @@ def _get_last_price_from_bars(manager: GTTOrderManager, api_symbol: str, asset_t
         raise
 
 
-@app.route('/api/price/<symbol>', methods=['GET'])
+@app.route('/api/price/<path:symbol>', methods=['GET'])
 @require_auth
 def get_price(symbol: str):
     """Get current price for a single symbol (works for any symbol, not just ones in GTT system)"""
@@ -2583,6 +2460,9 @@ def get_price(symbol: str):
         return jsonify({"error": "Manager not initialized"}), 503
     
     try:
+        # URL decode the symbol in case it was double-encoded
+        from urllib.parse import unquote
+        symbol = unquote(symbol)
         symbol = symbol.upper()
         normalized_symbol = symbol.replace('/USD', '')
         

@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { StockChart } from "@/components/stock-chart"
 import { ColumnDef } from "@tanstack/react-table"
-import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles, ExternalLink, Download, FileText, AlertTriangle, LogOut } from "lucide-react"
+import { Wifi, WifiOff, ChevronRight, ChevronDown, X, Check, TestTube, ChartCandlestick, RefreshCw, Activity, TriangleAlert, CheckCircle2, Clock, Circle, CircleDot, AlertCircle, Search, RotateCcw, Edit2, Save, Upload, TrendingUp, TrendingDown, Wallet, Sparkles, ExternalLink, Download, FileText, AlertTriangle, LogOut, Trash2 } from "lucide-react"
 
 // Reusable Icon Tooltip Component
 interface IconTooltipProps {
@@ -1778,20 +1778,67 @@ export default function OrdersPage() {
         const statusLower = order.status.toLowerCase()
         const isPending = statusLower === "pending" && !order.order_id
         
-        if (isPending) {
-          const buttonKey = `${order.symbol}-${order.order_index}`
-          return (
-            <ForceFillButton 
-              symbol={order.symbol} 
-              orderIndex={order.order_index - 1} 
-              onExecute={onRefresh}
-              isConfirming={isConfirming(buttonKey)}
-              onShowConfirm={() => addConfirmingButton(buttonKey)}
-              onHideConfirm={() => removeConfirmingButton(buttonKey)}
-            />
-          )
-        }
-        return <span className="text-muted-foreground text-xs">—</span>
+        const deleteButtonKey = `delete-${order.gtt_order_id || `${order.symbol}-${order.order_index}`}`
+        const isDeleting = isConfirming(deleteButtonKey)
+        
+        return (
+          <div className="flex items-center gap-1">
+            {isPending && (
+              <ForceFillButton 
+                symbol={order.symbol} 
+                orderIndex={order.order_index - 1} 
+                onExecute={onRefresh}
+                isConfirming={isConfirming(`${order.symbol}-${order.order_index}`)}
+                onShowConfirm={() => addConfirmingButton(`${order.symbol}-${order.order_index}`)}
+                onHideConfirm={() => removeConfirmingButton(`${order.symbol}-${order.order_index}`)}
+              />
+            )}
+            {order.gtt_order_id && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                disabled={isDeleting}
+                onClick={async (e) => {
+                  e.stopPropagation()
+                  if (!confirm(`Delete GTT order #${order.order_index} for ${order.symbol}?`)) {
+                    return
+                  }
+                  addConfirmingButton(deleteButtonKey)
+                  try {
+                    const response = await fetch(`${apiBaseUrl}/api/delete-gtt-order`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'include',
+                      body: JSON.stringify({ gtt_order_id: order.gtt_order_id })
+                    })
+                    const data = await response.json()
+                    if (response.ok) {
+                      onRefresh()
+                    } else {
+                      alert(`Failed to delete order: ${data.error || 'Unknown error'}`)
+                    }
+                  } catch (error) {
+                    console.error('Error deleting order:', error)
+                    alert(`Error deleting order: ${error}`)
+                  } finally {
+                    setTimeout(() => removeConfirmingButton(deleteButtonKey), 1000)
+                  }
+                }}
+                title="Delete this GTT order"
+              >
+                {isDeleting ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+              </Button>
+            )}
+            {!isPending && !order.gtt_order_id && (
+              <span className="text-muted-foreground text-xs">—</span>
+            )}
+          </div>
+        )
       },
     },
   ]
@@ -3225,50 +3272,83 @@ export default function OrdersPage() {
                         <CardHeader className="p-1.5 sm:p-2">
                           <AccordionTrigger className="hover:no-underline py-0 items-start">
                             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-8 sm:pr-2 gap-3 sm:gap-1">
-                              <div className="text-left flex-1 min-w-0 w-full sm:w-auto">
-                                <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
-                                  {symbol}
-                                  {isUnavailable && (
-                                    <span className="ml-1.5 text-xs font-normal text-red-500/70">(Not available)</span>
-                                  )}
-                                </CardTitle>
-                                <CardDescription className={`mt-0 text-xs ${isUnavailable ? 'text-red-400' : ''}`}>
-                                  {orders[0]?.company}
-                                </CardDescription>
-                              </div>
-                              
-                              <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-1 sm:ml-1 flex-shrink-0 w-full sm:w-auto items-start sm:items-center">
-                                <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
-                                  {currentPrice && (
-                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1">
-                                      <span>Current: {formatCurrency(currentPrice)}</span>
-                                      <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
-                                    </Badge>
-                                  )}
-                                  {(() => {
-                                    const currentOrder = orders.find(o => o.is_current)
-                                    if (currentOrder) {
-                                      return (
-                                        <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0">
-                                          Next Limit: {formatCurrency(currentOrder.price)}
-                                        </Badge>
-                                      )
+                              <div className="text-left flex-1 min-w-0 w-full sm:w-auto flex items-start gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10 flex-shrink-0 mt-0.5"
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    if (!confirm(`Delete all GTT orders for ${symbol}? This cannot be undone.`)) {
+                                      return
                                     }
-                                    return null
-                                  })()}
-                                </div>
-                                
-                                <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
-                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
-                                    {placedCount} of {totalOrders} placed
-                                  </Badge>
-                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-muted/50 text-muted-foreground">
-                                    {remainingCount} remaining
-                                  </Badge>
+                                    try {
+                                      const response = await fetch(`${apiBaseUrl}/api/delete-symbol-gtt-orders`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        credentials: 'include',
+                                        body: JSON.stringify({ symbol })
+                                      })
+                                      const data = await response.json()
+                                      if (response.ok) {
+                                        refreshData()
+                                      } else {
+                                        alert(`Failed to delete orders: ${data.error || 'Unknown error'}`)
+                                      }
+                                    } catch (error) {
+                                      console.error('Error deleting orders:', error)
+                                      alert(`Error deleting orders: ${error}`)
+                                    }
+                                  }}
+                                  title={`Delete all GTT orders for ${symbol}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                                <div>
+                                  <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
+                                    {symbol}
+                                    {isUnavailable && (
+                                      <span className="ml-1.5 text-xs font-normal text-red-500/70">(Not available)</span>
+                                    )}
+                                  </CardTitle>
+                                  <CardDescription className={`mt-0 text-xs ${isUnavailable ? 'text-red-400' : ''}`}>
+                                    {orders[0]?.company}
+                                  </CardDescription>
                                 </div>
                               </div>
-                            </div>
-                          </AccordionTrigger>
+                                
+                                <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-1 sm:ml-1 flex-shrink-0 w-full sm:w-auto items-start sm:items-center">
+                                  <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
+                                    {currentPrice && (
+                                      <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1">
+                                        <span>Current: {formatCurrency(currentPrice)}</span>
+                                        <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
+                                      </Badge>
+                                    )}
+                                    {(() => {
+                                      const currentOrder = orders.find(o => o.is_current)
+                                      if (currentOrder) {
+                                        return (
+                                          <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0">
+                                            Next Limit: {formatCurrency(currentOrder.price)}
+                                          </Badge>
+                                        )
+                                      }
+                                      return null
+                                    })()}
+                                  </div>
+                                  
+                                  <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
+                                      {placedCount} of {totalOrders} placed
+                                    </Badge>
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-muted/50 text-muted-foreground">
+                                      {remainingCount} remaining
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            </AccordionTrigger>
                         </CardHeader>
                         <AccordionContent>
                           <CardContent className="p-1.5 sm:p-2 space-y-4">
@@ -3824,50 +3904,83 @@ export default function OrdersPage() {
                         <CardHeader className="p-1.5 sm:p-2">
                           <AccordionTrigger className="hover:no-underline py-0 items-start">
                             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full pr-8 sm:pr-2 gap-3 sm:gap-1">
-                              <div className="text-left flex-1 min-w-0 w-full sm:w-auto">
-                                <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
-                                  {symbol}
-                                  {isUnavailable && (
-                                    <span className="ml-1.5 text-xs font-normal text-red-500/70">(Not available)</span>
-                                  )}
-                                </CardTitle>
-                                <CardDescription className={`mt-0 text-xs ${isUnavailable ? 'text-red-400' : ''}`}>
-                                  {orders[0]?.company}
-                                </CardDescription>
-                              </div>
-                              
-                              <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-1 sm:ml-1 flex-shrink-0 w-full sm:w-auto items-start sm:items-center">
-                                <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
-                                  {currentPrice && (
-                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1">
-                                      <span>Current: {formatCurrency(currentPrice)}</span>
-                                      <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
-                                    </Badge>
-                                  )}
-                                  {(() => {
-                                    const currentOrder = orders.find(o => o.is_current)
-                                    if (currentOrder) {
-                                      return (
-                                        <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0">
-                                          Next Limit: {formatCurrency(currentOrder.price)}
-                                        </Badge>
-                                      )
+                              <div className="text-left flex-1 min-w-0 w-full sm:w-auto flex items-start gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10 flex-shrink-0 mt-0.5"
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    if (!confirm(`Delete all GTT orders for ${symbol}? This cannot be undone.`)) {
+                                      return
                                     }
-                                    return null
-                                  })()}
-                                </div>
-                                
-                                <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
-                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
-                                    {placedCount} of {totalOrders} placed
-                                  </Badge>
-                                  <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-muted/50 text-muted-foreground">
-                                    {remainingCount} remaining
-                                  </Badge>
+                                    try {
+                                      const response = await fetch(`${apiBaseUrl}/api/delete-symbol-gtt-orders`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        credentials: 'include',
+                                        body: JSON.stringify({ symbol })
+                                      })
+                                      const data = await response.json()
+                                      if (response.ok) {
+                                        refreshData()
+                                      } else {
+                                        alert(`Failed to delete orders: ${data.error || 'Unknown error'}`)
+                                      }
+                                    } catch (error) {
+                                      console.error('Error deleting orders:', error)
+                                      alert(`Error deleting orders: ${error}`)
+                                    }
+                                  }}
+                                  title={`Delete all GTT orders for ${symbol}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                                <div>
+                                  <CardTitle className={`text-base sm:text-lg ${isUnavailable ? 'text-red-500' : ''}`}>
+                                    {symbol}
+                                    {isUnavailable && (
+                                      <span className="ml-1.5 text-xs font-normal text-red-500/70">(Not available)</span>
+                                    )}
+                                  </CardTitle>
+                                  <CardDescription className={`mt-0 text-xs ${isUnavailable ? 'text-red-400' : ''}`}>
+                                    {orders[0]?.company}
+                                  </CardDescription>
                                 </div>
                               </div>
-                            </div>
-                          </AccordionTrigger>
+                                
+                                <div className="flex flex-col sm:flex-row gap-1.5 sm:gap-1 sm:ml-1 flex-shrink-0 w-full sm:w-auto items-start sm:items-center">
+                                  <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
+                                    {currentPrice && (
+                                      <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 inline-flex items-center gap-1">
+                                        <span>Current: {formatCurrency(currentPrice)}</span>
+                                        <PriceStatusIndicator symbol={symbol} marketStatus={marketStatus} />
+                                      </Badge>
+                                    )}
+                                    {(() => {
+                                      const currentOrder = orders.find(o => o.is_current)
+                                      if (currentOrder) {
+                                        return (
+                                          <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0">
+                                            Next Limit: {formatCurrency(currentOrder.price)}
+                                          </Badge>
+                                        )
+                                      }
+                                      return null
+                                    })()}
+                                  </div>
+                                  
+                                  <div className="flex flex-wrap items-center gap-1 w-full sm:w-auto">
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
+                                      {placedCount} of {totalOrders} placed
+                                    </Badge>
+                                    <Badge variant="outline" className="text-xs shrink-0 px-1.5 py-0 bg-muted/50 text-muted-foreground">
+                                      {remainingCount} remaining
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            </AccordionTrigger>
                         </CardHeader>
                         <AccordionContent>
                           <CardContent className="p-1.5 sm:p-2 space-y-4">

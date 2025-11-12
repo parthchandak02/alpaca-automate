@@ -431,6 +431,37 @@ class GTTOrderDatabase:
             
             conn.commit()
     
+    def delete_gtt_order(self, gtt_order_id: int):
+        """Delete a single GTT order by ID"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get the order to find its symbol and order_index
+            cursor.execute("SELECT symbol, order_index FROM gtt_orders WHERE id = ?", (gtt_order_id,))
+            order = cursor.fetchone()
+            
+            if not order:
+                return False
+            
+            symbol = order['symbol']
+            deleted_order_index = order['order_index']
+            
+            # Delete completed orders linked to this GTT order
+            cursor.execute("DELETE FROM completed_orders WHERE gtt_order_id = ?", (gtt_order_id,))
+            
+            # Delete the GTT order
+            cursor.execute("DELETE FROM gtt_orders WHERE id = ?", (gtt_order_id,))
+            
+            # Re-index remaining orders for this symbol (shift down order_index for orders after deleted one)
+            cursor.execute("""
+                UPDATE gtt_orders 
+                SET order_index = order_index - 1
+                WHERE symbol = ? AND order_index > ?
+            """, (symbol, deleted_order_index))
+            
+            conn.commit()
+            return True
+    
     def get_all_symbols(self) -> List[str]:
         """Get list of all unique symbols"""
         with self.get_connection() as conn:
