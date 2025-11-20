@@ -1,0 +1,47 @@
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Starting tunnel tunnelID=4873e651-d8a4-4ef6-b019-95f74ebcff8e
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Version 2025.11.1 (Checksum 53e8656c5207f9cba9ed4915ecaeffc2a8d6b401bef21e60ad543f02c135b4ae)
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF GOOS: darwin, GOVersion: go1.25.4, GoArch: arm64
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Settings: map[cred-file:/Users/parthchandak/.cloudflared/4873e651-d8a4-4ef6-b019-95f74ebcff8e.json credentials-file:/Users/parthchandak/.cloudflared/4873e651-d8a4-4ef6-b019-95f74ebcff8e.json]
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Environmental variables map[TUNNEL_METRICS:0.0.0.0:9090]
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF cloudflared will not automatically update if installed by a package manager.
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Generated Connector ID: 55004bed-9898-414f-91fa-4df7d5d196e3
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Initial protocol quic
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF ICMP proxy will use 192.168.4.25 as source for IPv4
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF ICMP proxy will use fe80::1441:33e0:3229:1944 in zone en1 as source for IPv6
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Created ICMP proxy listening on 192.168.4.25:0
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF ICMP proxy will use 192.168.4.25 as source for IPv4
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF ICMP proxy will use fe80::1441:33e0:3229:1944 in zone en1 as source for IPv6
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Starting metrics server on [::]:9090/metrics
+2025-11-18T13:45:38: 2025-11-18T21:45:38Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveP256] connIndex=0 event=0 ip=198.41.192.77
+2025-11-18T13:45:39: 2025-11-18T21:45:39Z INF Registered tunnel connection connIndex=0 connection=89765aa0-f116-4db5-9b38-aa81aa18fd49 event=0 ip=198.41.192.77 location=sjc01 protocol=quic
+2025-11-18T13:45:39: 2025-11-18T21:45:39Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveP256] connIndex=1 event=0 ip=198.41.200.113
+2025-11-18T13:45:39: 2025-11-18T21:45:39Z INF Registered tunnel connection connIndex=1 connection=21a43d8f-e9d2-4af7-8c36-bac87f0f6ba0 event=0 ip=198.41.200.113 location=sjc05 protocol=quic
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveP256] connIndex=2 event=0 ip=198.41.200.73
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z INF Registered tunnel connection connIndex=2 connection=95050883-0400-4eac-a64b-f8d8f1e496ac event=0 ip=198.41.200.73 location=sjc07 protocol=quic
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z INF Initiating graceful shutdown due to signal interrupt ...
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR failed to run the datagram handler error="context canceled" connIndex=0 event=0 ip=198.41.192.77
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR failed to run the datagram handler error="Application error 0x0 (remote)" connIndex=2 event=0 ip=198.41.200.73
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR failed to serve tunnel connection error="accept stream listener encountered a failure while serving" connIndex=2 event=0 ip=198.41.200.73
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR failed to serve tunnel connection error="accept stream listener encountered a failure while serving" connIndex=0 event=0 ip=198.41.192.77
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR failed to run the datagram handler error="context canceled" connIndex=1 event=0 ip=198.41.200.113
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR Serve tunnel error error="accept stream listener encountered a failure while serving" connIndex=0 event=0 ip=198.41.192.77
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.192.77
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR Serve tunnel error error="accept stream listener encountered a failure while serving" connIndex=2 event=0 ip=198.41.200.73
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR failed to serve tunnel connection error="accept stream listener encountered a failure while serving" connIndex=1 event=0 ip=198.41.200.113
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z INF Retrying connection in up to 1s connIndex=2 event=0 ip=198.41.200.73
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z ERR Serve tunnel error error="accept stream listener encountered a failure while serving" connIndex=1 event=0 ip=198.41.200.113
+2025-11-18T13:45:40: 2025-11-18T21:45:40Z INF Retrying connection in up to 1s connIndex=1 event=0 ip=198.41.200.113
+2025-11-18T13:45:41: 2025-11-18T21:45:41Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveP256] connIndex=3 event=0 ip=198.41.192.47
+2025-11-18T13:45:41: 2025-11-18T21:45:41Z INF Registered tunnel connection connIndex=3 connection=26106e0d-354a-4b5e-88ef-884b627ae310 event=0 ip=198.41.192.47 location=sjc06 protocol=quic
+2025-11-18T13:45:41: 2025-11-18T21:45:41Z ERR failed to run the datagram handler error="Application error 0x0 (remote)" connIndex=3 event=0 ip=198.41.192.47
+2025-11-18T13:45:41: 2025-11-18T21:45:41Z ERR failed to serve tunnel connection error="accept stream listener encountered a failure while serving" connIndex=3 event=0 ip=198.41.192.47
+2025-11-18T13:45:41: 2025-11-18T21:45:41Z ERR Serve tunnel error error="accept stream listener encountered a failure while serving" connIndex=3 event=0 ip=198.41.192.47
+2025-11-18T13:45:41: 2025-11-18T21:45:41Z INF Retrying connection in up to 1s connIndex=3 event=0 ip=198.41.192.47
+2025-11-18T13:45:42: 2025-11-18T21:45:42Z ERR Connection terminated connIndex=0
+2025-11-18T13:45:42: 2025-11-18T21:45:42Z ERR Connection terminated connIndex=2
+2025-11-18T13:45:42: 2025-11-18T21:45:42Z ERR Connection terminated connIndex=1
+2025-11-18T13:45:42: 2025-11-18T21:45:42Z ERR Connection terminated connIndex=3
+2025-11-18T13:45:42: 2025-11-18T21:45:42Z ERR no more connections active and exiting
+2025-11-18T13:45:42: 2025-11-18T21:45:42Z INF Tunnel server stopped
+2025-11-18T13:45:42: 2025-11-18T21:45:42Z INF icmp router terminated error="read udp 192.168.4.25:0: raw-read udp 192.168.4.25:0: use of closed network connection"
+2025-11-18T13:45:42: 2025-11-18T21:45:42Z INF Metrics server stopped

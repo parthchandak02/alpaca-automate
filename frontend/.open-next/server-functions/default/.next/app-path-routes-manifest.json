@@ -1,0 +1,8 @@
+{
+  "/api/version/route": "/api/version",
+  "/_not-found/page": "/_not-found",
+  "/activities/page": "/activities",
+  "/login/page": "/login",
+  "/market-data/page": "/market-data",
+  "/page": "/"
+}

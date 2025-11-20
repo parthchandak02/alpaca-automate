@@ -1,0 +1,49 @@
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mDeploying Frontend to Cloudflare Workers[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+[0;32m✅ Loaded Cloudflare credentials from .env[0m
+[0;32m✅ Cloudflare credentials found[0m
+
+[0;34mSetting production API URL: https://api-alpaca.parthchandak.info[0m
+[0;34mSetting app version: b7921f8[0m
+[0;34mDeployment timestamp: 2025-11-18T09:14:37Z[0m
+
+[0;34mBuilding and deploying to Cloudflare Workers...[0m
+
+
+> alpaca-trading-frontend@1.0.0 deploy
+> next build && opennextjs-cloudflare
+
+   ▲ Next.js 15.5.6
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 2.3s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/7) ...
+   Generating static pages (1/7) 
+   Generating static pages (3/7) 
+   Generating static pages (5/7) 
+ ✓ Generating static pages (7/7)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                    Size  First Load JS
+┌ ○ /                           0 B            0 B
+├ ○ /_not-found                 0 B            0 B
+├ ƒ /api/version                0 B            0 B
+├ ○ /data                       0 B            0 B
+└ ○ /login                      0 B            0 B
++ First Load JS shared by all   0 B
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+┌─────────────────────────────┐
+│ OpenNext — Cloudflare build │
+└─────────────────────────────┘
+
+[?25l? Missing required `open-next.config.ts` file, do you want to create one? (Y/n) › true[4D[?25h

@@ -1,0 +1,1480 @@
+2025-11-19T00:00:35: [?25h
+2025-11-19T00:00:35: 
+2025-11-19T00:00:35: 
+2025-11-19T00:00:35: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:00:35: > next dev
+2025-11-19T00:00:35: 
+2025-11-19T00:00:36:    ▲ Next.js 15.5.6
+2025-11-19T00:00:36:    - Local:        http://localhost:3000
+2025-11-19T00:00:36:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:00:36: 
+2025-11-19T00:00:36:  ✓ Starting...
+2025-11-19T00:00:37:  ✓ Ready in 1077ms
+2025-11-19T00:00:43:  ○ Compiling / ...
+2025-11-19T00:00:44: [?25h
+2025-11-19T00:00:44: 
+2025-11-19T00:00:44: 
+2025-11-19T00:00:44: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:00:44: > next dev
+2025-11-19T00:00:44: 
+2025-11-19T00:00:45:    ▲ Next.js 15.5.6
+2025-11-19T00:00:45:    - Local:        http://localhost:3000
+2025-11-19T00:00:45:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:00:45: 
+2025-11-19T00:00:45:  ✓ Starting...
+2025-11-19T00:00:46:  ✓ Ready in 1072ms
+2025-11-19T00:00:48: [?25h
+2025-11-19T00:00:48: 
+2025-11-19T00:00:48: 
+2025-11-19T00:00:48: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:00:48: > next dev
+2025-11-19T00:00:48: 
+2025-11-19T00:00:49:    ▲ Next.js 15.5.6
+2025-11-19T00:00:49:    - Local:        http://localhost:3000
+2025-11-19T00:00:49:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:00:49: 
+2025-11-19T00:00:49:  ✓ Starting...
+2025-11-19T00:00:50:  ✓ Ready in 1042ms
+2025-11-19T00:00:51:  ○ Compiling / ...
+2025-11-19T00:00:55:  ✓ Compiled / in 4.8s (2371 modules)
+2025-11-19T00:00:56:  GET / 200 in 2978ms
+2025-11-19T00:00:56:  GET /?asset=stocks&view=gtt 200 in 5774ms
+2025-11-19T00:00:56:  ✓ Compiled in 1086ms (1092 modules)
+2025-11-19T00:01:01:  GET / 200 in 37ms
+2025-11-19T00:01:02:  ✓ Compiled /api/version in 378ms (2359 modules)
+2025-11-19T00:01:02:  GET /api/version 200 in 370ms
+2025-11-19T00:01:02:  GET /api/version 200 in 473ms
+2025-11-19T00:01:03:  GET /?asset=stocks&view=gtt 200 in 67ms
+2025-11-19T00:01:03:  GET /?asset=stocks&view=gtt 200 in 9ms
+2025-11-19T00:01:08:  ✓ Compiled in 332ms (2373 modules)
+2025-11-19T00:01:08:  GET /?asset=stocks&view=gtt 200 in 85ms
+2025-11-19T00:01:20: [?25h
+2025-11-19T00:01:20: 
+2025-11-19T00:01:20: 
+2025-11-19T00:01:20: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:01:20: > next dev
+2025-11-19T00:01:20: 
+2025-11-19T00:01:21:    ▲ Next.js 15.5.6
+2025-11-19T00:01:21:    - Local:        http://localhost:3000
+2025-11-19T00:01:21:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:01:21: 
+2025-11-19T00:01:21:  ✓ Starting...
+2025-11-19T00:01:22:  ✓ Ready in 1062ms
+2025-11-19T00:02:03:  ○ Compiling /api/version ...
+2025-11-19T00:02:03:  ✓ Compiled /api/version in 943ms (296 modules)
+2025-11-19T00:02:04:  GET /api/version 200 in 1062ms
+2025-11-19T00:03:02:  GET /api/version 200 in 18ms
+2025-11-19T00:03:09:  ○ Compiling / ...
+2025-11-19T00:03:13:  ✓ Compiled / in 4.6s (2391 modules)
+2025-11-19T00:03:14:  GET /?asset=stocks&view=orders 200 in 5078ms
+2025-11-19T00:03:14:  GET /?asset=stocks&view=gtt 200 in 1427ms
+2025-11-19T00:03:14:  GET /?asset=stocks&view=orders 200 in 111ms
+2025-11-19T00:03:15:  ✓ Compiled in 614ms (1093 modules)
+2025-11-19T00:03:16:  GET / 200 in 29ms
+2025-11-19T00:03:17:  GET /api/version 200 in 19ms
+2025-11-19T00:03:17:  GET /api/version 200 in 18ms
+2025-11-19T00:03:17:  GET /?asset=stocks&view=orders 200 in 27ms
+2025-11-19T00:03:17:  GET /?asset=stocks&view=orders 200 in 19ms
+2025-11-19T00:03:23:  ✓ Compiled in 453ms (2373 modules)
+2025-11-19T00:03:23:  GET /?asset=stocks&view=orders 200 in 78ms
+2025-11-19T00:03:26:  ✓ Compiled in 256ms (2373 modules)
+2025-11-19T00:03:26:  GET /?asset=stocks&view=orders 200 in 67ms
+2025-11-19T00:03:49: [?25h
+2025-11-19T00:03:49: 
+2025-11-19T00:03:50: 
+2025-11-19T00:03:50: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:03:50: > next dev
+2025-11-19T00:03:50: 
+2025-11-19T00:03:50:    ▲ Next.js 15.5.6
+2025-11-19T00:03:50:    - Local:        http://localhost:3000
+2025-11-19T00:03:50:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:03:50: 
+2025-11-19T00:03:50:  ✓ Starting...
+2025-11-19T00:03:51:  ✓ Ready in 1207ms
+2025-11-19T00:04:04:  ○ Compiling / ...
+2025-11-19T00:04:09:  ✓ Compiled / in 5.3s (2371 modules)
+2025-11-19T00:04:09:  ⨯ [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:09:   errno: -2,
+2025-11-19T00:04:09:   code: 'ENOENT',
+2025-11-19T00:04:09:   syscall: 'open',
+2025-11-19T00:04:09:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json',
+2025-11-19T00:04:09:   page: '/'
+2025-11-19T00:04:09: }
+2025-11-19T00:04:10:  ○ Compiling /_error ...
+2025-11-19T00:04:13:  ✓ Compiled /_error in 4.1s (2679 modules)
+2025-11-19T00:04:13:  ⨯ [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:13:   errno: -2,
+2025-11-19T00:04:13:   code: 'ENOENT',
+2025-11-19T00:04:13:   syscall: 'open',
+2025-11-19T00:04:13:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:04:13: }
+2025-11-19T00:04:14: [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:14:   errno: -2,
+2025-11-19T00:04:14:   code: 'ENOENT',
+2025-11-19T00:04:14:   syscall: 'open',
+2025-11-19T00:04:14:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json',
+2025-11-19T00:04:14:   page: '/'
+2025-11-19T00:04:14: }
+2025-11-19T00:04:15:  ⨯ [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:15:   errno: -2,
+2025-11-19T00:04:15:   code: 'ENOENT',
+2025-11-19T00:04:15:   syscall: 'open',
+2025-11-19T00:04:15:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:04:15: }
+2025-11-19T00:04:15: [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:15:   errno: -2,
+2025-11-19T00:04:15:   code: 'ENOENT',
+2025-11-19T00:04:15:   syscall: 'open',
+2025-11-19T00:04:15:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:04:15: }
+2025-11-19T00:04:15:  GET /?asset=crypto&view=orders 500 in 11414ms
+2025-11-19T00:04:15:  GET /?asset=crypto&view=orders 500 in 265ms
+2025-11-19T00:04:15:  ⨯ [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:15:   errno: -2,
+2025-11-19T00:04:15:   code: 'ENOENT',
+2025-11-19T00:04:15:   syscall: 'open',
+2025-11-19T00:04:15:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json',
+2025-11-19T00:04:15:   page: '/'
+2025-11-19T00:04:15: }
+2025-11-19T00:04:15:  ⨯ [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:15:   errno: -2,
+2025-11-19T00:04:15:   code: 'ENOENT',
+2025-11-19T00:04:15:   syscall: 'open',
+2025-11-19T00:04:15:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:04:15: }
+2025-11-19T00:04:15: [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:15:   errno: -2,
+2025-11-19T00:04:15:   code: 'ENOENT',
+2025-11-19T00:04:15:   syscall: 'open',
+2025-11-19T00:04:15:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json',
+2025-11-19T00:04:15:   page: '/'
+2025-11-19T00:04:15: }
+2025-11-19T00:04:16:  ⨯ [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:16:   errno: -2,
+2025-11-19T00:04:16:   code: 'ENOENT',
+2025-11-19T00:04:16:   syscall: 'open',
+2025-11-19T00:04:16:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:04:16: }
+2025-11-19T00:04:16: [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:04:16:   errno: -2,
+2025-11-19T00:04:16:   code: 'ENOENT',
+2025-11-19T00:04:16:   syscall: 'open',
+2025-11-19T00:04:16:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:04:16: }
+2025-11-19T00:04:16:  GET /?asset=crypto&view=orders 500 in 847ms
+2025-11-19T00:04:16:  GET /?asset=crypto&view=orders 500 in 271ms
+2025-11-19T00:05:12: [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/0.pack.gz'] {
+2025-11-19T00:05:12:   errno: -2,
+2025-11-19T00:05:12:   code: 'ENOENT',
+2025-11-19T00:05:12:   syscall: 'stat',
+2025-11-19T00:05:12:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/0.pack.gz'
+2025-11-19T00:05:12: }
+2025-11-19T00:05:12:  ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/0.pack.gz'] {
+2025-11-19T00:05:12:   errno: -2,
+2025-11-19T00:05:12:   code: 'ENOENT',
+2025-11-19T00:05:12:   syscall: 'stat',
+2025-11-19T00:05:12:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/0.pack.gz'
+2025-11-19T00:05:12: }
+2025-11-19T00:05:12:  ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/0.pack.gz'] {
+2025-11-19T00:05:12:   errno: -2,
+2025-11-19T00:05:12:   code: 'ENOENT',
+2025-11-19T00:05:12:   syscall: 'stat',
+2025-11-19T00:05:12:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/0.pack.gz'
+2025-11-19T00:05:12: }
+2025-11-19T00:05:12: <w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/0.pack.gz'
+2025-11-19T00:05:13: [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/0.pack.gz'] {
+2025-11-19T00:05:13:   errno: -2,
+2025-11-19T00:05:13:   code: 'ENOENT',
+2025-11-19T00:05:13:   syscall: 'stat',
+2025-11-19T00:05:13:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/0.pack.gz'
+2025-11-19T00:05:13: }
+2025-11-19T00:05:13:  ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/0.pack.gz'] {
+2025-11-19T00:05:13:   errno: -2,
+2025-11-19T00:05:13:   code: 'ENOENT',
+2025-11-19T00:05:13:   syscall: 'stat',
+2025-11-19T00:05:13:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/0.pack.gz'
+2025-11-19T00:05:13: }
+2025-11-19T00:05:13:  ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/0.pack.gz'] {
+2025-11-19T00:05:13:   errno: -2,
+2025-11-19T00:05:13:   code: 'ENOENT',
+2025-11-19T00:05:13:   syscall: 'stat',
+2025-11-19T00:05:13:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/0.pack.gz'
+2025-11-19T00:05:13: }
+2025-11-19T00:05:13: <w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/0.pack.gz'
+2025-11-19T00:08:52:  ✓ Compiled in 363ms (1348 modules)
+2025-11-19T00:08:55:  ✓ Compiled in 268ms (1243 modules)
+2025-11-19T00:09:06:  ✓ Compiled in 257ms (1243 modules)
+2025-11-19T00:09:09:  ⨯ ./components/gtt/StockChart.tsx
+2025-11-19T00:09:09: Module parse failed: Identifier 'priceRange' has already been declared (198:10)
+2025-11-19T00:09:09: |     // Calculate non-overlapping label positions
+2025-11-19T00:09:09: |     // Minimum distance between labels in price units
+2025-11-19T00:09:09: >     const priceRange = yMax - yMin;
+2025-11-19T00:09:09: |     const minLabelDistance = priceRange * 0.05; // 5% of chart height
+2025-11-19T00:09:09: |     const labelPositions = new Map();
+2025-11-19T00:09:09: 
+2025-11-19T00:09:09: Import trace for requested module:
+2025-11-19T00:09:09: ./components/gtt/StockChart.tsx
+2025-11-19T00:09:09: ./components/gtt/GTTOrdersTable.tsx
+2025-11-19T00:09:09: ./components/dashboard/DashboardTabsContent.tsx
+2025-11-19T00:09:09: ./app/page.tsx
+2025-11-19T00:09:16:  ⨯ ./components/gtt/StockChart.tsx
+2025-11-19T00:09:16: Module parse failed: Identifier 'priceRange' has already been declared (198:10)
+2025-11-19T00:09:16: |     // Calculate non-overlapping label positions
+2025-11-19T00:09:16: |     // Minimum distance between labels in price units
+2025-11-19T00:09:16: >     const priceRange = yMax - yMin;
+2025-11-19T00:09:16: |     const minLabelDistance = priceRange * 0.05; // 5% of chart height
+2025-11-19T00:09:16: |     const labelPositions = new Map();
+2025-11-19T00:09:16: 
+2025-11-19T00:09:16: Import trace for requested module:
+2025-11-19T00:09:16: ./components/gtt/StockChart.tsx
+2025-11-19T00:09:16: ./components/gtt/GTTOrdersTable.tsx
+2025-11-19T00:09:16: ./components/dashboard/DashboardTabsContent.tsx
+2025-11-19T00:09:16: ./app/page.tsx
+2025-11-19T00:09:22:  ⨯ ./components/gtt/StockChart.tsx
+2025-11-19T00:09:22: Module parse failed: Identifier 'priceRange' has already been declared (198:10)
+2025-11-19T00:09:22: |     // Calculate non-overlapping label positions
+2025-11-19T00:09:22: |     // Minimum distance between labels in price units
+2025-11-19T00:09:22: >     const priceRange = yMax - yMin;
+2025-11-19T00:09:22: |     const minLabelDistance = priceRange * 0.05; // 5% of chart height
+2025-11-19T00:09:22: |     const labelPositions = new Map();
+2025-11-19T00:09:22: 
+2025-11-19T00:09:22: Import trace for requested module:
+2025-11-19T00:09:22: ./components/gtt/StockChart.tsx
+2025-11-19T00:09:22: ./components/gtt/GTTOrdersTable.tsx
+2025-11-19T00:09:22: ./components/dashboard/DashboardTabsContent.tsx
+2025-11-19T00:09:22: ./app/page.tsx
+2025-11-19T00:09:25:  ⨯ ./components/gtt/StockChart.tsx
+2025-11-19T00:09:25: Module parse failed: Identifier 'priceRange' has already been declared (198:10)
+2025-11-19T00:09:25: |     // Calculate non-overlapping label positions
+2025-11-19T00:09:25: |     // Minimum distance between labels in price units
+2025-11-19T00:09:25: >     const priceRange = yMax - yMin;
+2025-11-19T00:09:25: |     const minLabelDistance = priceRange * 0.05; // 5% of chart height
+2025-11-19T00:09:25: |     const labelPositions = new Map();
+2025-11-19T00:09:25: 
+2025-11-19T00:09:25: Import trace for requested module:
+2025-11-19T00:09:25: ./components/gtt/StockChart.tsx
+2025-11-19T00:09:25: ./components/gtt/GTTOrdersTable.tsx
+2025-11-19T00:09:25: ./components/dashboard/DashboardTabsContent.tsx
+2025-11-19T00:09:25: ./app/page.tsx
+2025-11-19T00:09:35: [?25h
+2025-11-19T00:09:35: 
+2025-11-19T00:09:36: 
+2025-11-19T00:09:36: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:09:36: > next dev
+2025-11-19T00:09:36: 
+2025-11-19T00:09:37:    ▲ Next.js 15.5.6
+2025-11-19T00:09:37:    - Local:        http://localhost:3000
+2025-11-19T00:09:37:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:09:37: 
+2025-11-19T00:09:37:  ✓ Starting...
+2025-11-19T00:09:38:  ✓ Ready in 1278ms
+2025-11-19T00:10:15: [?25h
+2025-11-19T00:10:15: 
+2025-11-19T00:10:16: 
+2025-11-19T00:10:16: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:10:16: > next dev
+2025-11-19T00:10:16: 
+2025-11-19T00:10:17:    ▲ Next.js 15.5.6
+2025-11-19T00:10:17:    - Local:        http://localhost:3000
+2025-11-19T00:10:17:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:10:17: 
+2025-11-19T00:10:17:  ✓ Starting...
+2025-11-19T00:10:17:  ✓ Ready in 1050ms
+2025-11-19T00:10:41: [?25h
+2025-11-19T00:10:41: 
+2025-11-19T00:10:42: 
+2025-11-19T00:10:42: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:10:42: > next dev
+2025-11-19T00:10:42: 
+2025-11-19T00:10:42:    ▲ Next.js 15.5.6
+2025-11-19T00:10:42:    - Local:        http://localhost:3000
+2025-11-19T00:10:42:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:10:42: 
+2025-11-19T00:10:42:  ✓ Starting...
+2025-11-19T00:10:43: [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/types/validator.ts'] {
+2025-11-19T00:10:43:   errno: -2,
+2025-11-19T00:10:43:   code: 'ENOENT',
+2025-11-19T00:10:43:   syscall: 'open',
+2025-11-19T00:10:43:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/types/validator.ts'
+2025-11-19T00:10:43: }
+2025-11-19T00:10:43: [?25h
+2025-11-19T00:10:43: 
+2025-11-19T00:10:48: 
+2025-11-19T00:10:48: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:10:48: > next dev
+2025-11-19T00:10:48: 
+2025-11-19T00:10:49:    ▲ Next.js 15.5.6
+2025-11-19T00:10:49:    - Local:        http://localhost:3000
+2025-11-19T00:10:49:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:10:49: 
+2025-11-19T00:10:49:  ✓ Starting...
+2025-11-19T00:10:50:  ✓ Ready in 1002ms
+2025-11-19T00:12:32: [?25h
+2025-11-19T00:12:32: 
+2025-11-19T00:12:33: 
+2025-11-19T00:12:33: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:12:33: > next dev
+2025-11-19T00:12:33: 
+2025-11-19T00:12:33:    ▲ Next.js 15.5.6
+2025-11-19T00:12:33:    - Local:        http://localhost:3000
+2025-11-19T00:12:33:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:12:33: 
+2025-11-19T00:12:33:  ✓ Starting...
+2025-11-19T00:12:34:  ✓ Ready in 1189ms
+2025-11-19T00:12:38:  ○ Compiling / ...
+2025-11-19T00:12:42:  ✓ Compiled / in 4.8s (2371 modules)
+2025-11-19T00:12:43:  GET /?asset=crypto&view=orders 200 in 739ms
+2025-11-19T00:12:43:  GET / 200 in 5526ms
+2025-11-19T00:12:43:  ✓ Compiled in 581ms (1092 modules)
+2025-11-19T00:12:44:  ✓ Compiled /api/version in 305ms (2359 modules)
+2025-11-19T00:12:44:  GET /api/version 200 in 313ms
+2025-11-19T00:12:44:  GET /api/version 200 in 388ms
+2025-11-19T00:12:45:  GET /?asset=crypto&view=gtt 200 in 67ms
+2025-11-19T00:12:45:  GET /?asset=crypto&view=gtt 200 in 8ms
+2025-11-19T00:12:50:  ✓ Compiled /market-data in 326ms (2368 modules)
+2025-11-19T00:12:50:  GET /market-data 200 in 394ms
+2025-11-19T00:12:50:  GET /api/version 200 in 11ms
+2025-11-19T00:12:58:  ✓ Compiled in 317ms (2382 modules)
+2025-11-19T00:12:58:  GET /market-data 200 in 52ms
+2025-11-19T00:13:17:  ✓ Compiled in 342ms (2382 modules)
+2025-11-19T00:13:17:  GET /market-data 200 in 53ms
+2025-11-19T00:13:26:  ○ Compiling /activities ...
+2025-11-19T00:13:27:  ✓ Compiled /activities in 1257ms (2403 modules)
+2025-11-19T00:13:27:  GET /activities 200 in 1373ms
+2025-11-19T00:13:27:  GET /api/version 200 in 17ms
+2025-11-19T00:13:41:  ✓ Compiled in 353ms (2417 modules)
+2025-11-19T00:13:41:  GET /activities 200 in 79ms
+2025-11-19T00:13:42:  ✓ Compiled in 315ms (2417 modules)
+2025-11-19T00:13:42:  GET /activities 200 in 47ms
+2025-11-19T00:13:45:  GET /api/version 200 in 24ms
+2025-11-19T00:13:49:  ✓ Compiled in 359ms (2417 modules)
+2025-11-19T00:13:49:  GET /activities 200 in 47ms
+2025-11-19T00:13:59:  ✓ Compiled in 298ms (2417 modules)
+2025-11-19T00:13:59:  GET /activities 200 in 46ms
+2025-11-19T00:14:17:  ✓ Compiled in 527ms (2417 modules)
+2025-11-19T00:14:17:  GET /activities 200 in 52ms
+2025-11-19T00:14:27:  ✓ Compiled in 360ms (2417 modules)
+2025-11-19T00:14:27:  GET /activities 200 in 74ms
+2025-11-19T00:14:38:  GET /market-data 200 in 37ms
+2025-11-19T00:14:39:  GET /api/version 200 in 26ms
+2025-11-19T00:14:40:  GET / 200 in 40ms
+2025-11-19T00:14:40:  GET /api/version 200 in 16ms
+2025-11-19T00:14:40:  GET /?asset=stocks&view=gtt 200 in 25ms
+2025-11-19T00:14:41:  GET /?asset=stocks&view=gtt 200 in 17ms
+2025-11-19T00:14:44:  GET /api/version 200 in 16ms
+2025-11-19T00:15:44:  GET /api/version 200 in 35ms
+2025-11-19T00:16:19:  ✓ Compiled in 1313ms (2417 modules)
+2025-11-19T00:16:19:  GET /?asset=stocks&view=gtt 200 in 93ms
+2025-11-19T00:16:25: [?25h
+2025-11-19T00:16:25: 
+2025-11-19T00:16:26: 
+2025-11-19T00:16:26: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:16:26: > next dev
+2025-11-19T00:16:26: 
+2025-11-19T00:16:27:    ▲ Next.js 15.5.6
+2025-11-19T00:16:27:    - Local:        http://localhost:3000
+2025-11-19T00:16:27:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:16:27: 
+2025-11-19T00:16:27:  ✓ Starting...
+2025-11-19T00:16:27:  ✓ Ready in 1113ms
+2025-11-19T00:16:45:  ○ Compiling /api/version ...
+2025-11-19T00:16:46:  ✓ Compiled /api/version in 1069ms (296 modules)
+2025-11-19T00:16:46:  ⨯ [Error: Cannot find module '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/server/middleware-manifest.json'
+2025-11-19T00:16:46: Require stack:
+2025-11-19T00:16:46: - /Users/parthchandak/Documents/alpaca-trading/frontend/node_modules/next/dist/server/next-server.js
+2025-11-19T00:16:46: - /Users/parthchandak/Documents/alpaca-trading/frontend/node_modules/next/dist/server/dev/next-dev-server.js
+2025-11-19T00:16:46: - /Users/parthchandak/Documents/alpaca-trading/frontend/node_modules/next/dist/server/next.js
+2025-11-19T00:16:46: - /Users/parthchandak/Documents/alpaca-trading/frontend/node_modules/next/dist/server/lib/start-server.js] {
+2025-11-19T00:16:46:   code: 'MODULE_NOT_FOUND',
+2025-11-19T00:16:46:   requireStack: [Array]
+2025-11-19T00:16:46: }
+2025-11-19T00:16:46:  ○ Compiling /_error ...
+2025-11-19T00:16:47:  ✓ Compiled /_error in 970ms (637 modules)
+2025-11-19T00:16:47:  ⨯ [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:16:47:   errno: -2,
+2025-11-19T00:16:47:   code: 'ENOENT',
+2025-11-19T00:16:47:   syscall: 'open',
+2025-11-19T00:16:47:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:16:47: }
+2025-11-19T00:16:48: [Error: Cannot find module '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/server/middleware-manifest.json'
+2025-11-19T00:16:48: Require stack:
+2025-11-19T00:16:48: - /Users/parthchandak/Documents/alpaca-trading/frontend/node_modules/next/dist/server/next-server.js
+2025-11-19T00:16:48: - /Users/parthchandak/Documents/alpaca-trading/frontend/node_modules/next/dist/server/dev/next-dev-server.js
+2025-11-19T00:16:48: - /Users/parthchandak/Documents/alpaca-trading/frontend/node_modules/next/dist/server/next.js
+2025-11-19T00:16:48: - /Users/parthchandak/Documents/alpaca-trading/frontend/node_modules/next/dist/server/lib/start-server.js] {
+2025-11-19T00:16:48:   code: 'MODULE_NOT_FOUND',
+2025-11-19T00:16:48:   requireStack: [Array]
+2025-11-19T00:16:48: }
+2025-11-19T00:16:48:  ⨯ [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:16:48:   errno: -2,
+2025-11-19T00:16:48:   code: 'ENOENT',
+2025-11-19T00:16:48:   syscall: 'open',
+2025-11-19T00:16:48:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:16:48: }
+2025-11-19T00:16:48: [Error: ENOENT: no such file or directory, open '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'] {
+2025-11-19T00:16:48:   errno: -2,
+2025-11-19T00:16:48:   code: 'ENOENT',
+2025-11-19T00:16:48:   syscall: 'open',
+2025-11-19T00:16:48:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/routes-manifest.json'
+2025-11-19T00:16:48: }
+2025-11-19T00:16:48:  GET /api/version 500 in 3793ms
+2025-11-19T00:16:48:  GET /api/version 500 in 249ms
+2025-11-19T00:17:27: [?25h
+2025-11-19T00:17:27: 
+2025-11-19T00:17:27: 
+2025-11-19T00:17:27: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:17:27: > next dev
+2025-11-19T00:17:27: 
+2025-11-19T00:17:28:    ▲ Next.js 15.5.6
+2025-11-19T00:17:28:    - Local:        http://localhost:3000
+2025-11-19T00:17:28:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:17:28: 
+2025-11-19T00:17:28:  ✓ Starting...
+2025-11-19T00:17:29:  ✓ Ready in 1160ms
+2025-11-19T00:17:29:  ○ Compiling / ...
+2025-11-19T00:17:34:  ✓ Compiled / in 5s (2371 modules)
+2025-11-19T00:17:35:  GET /?asset=stocks&view=gtt 200 in 5963ms
+2025-11-19T00:17:35:  ✓ Compiled in 591ms (1092 modules)
+2025-11-19T00:17:36:  ○ Compiling /api/version ...
+2025-11-19T00:17:36:  ✓ Compiled /api/version in 715ms (2359 modules)
+2025-11-19T00:17:36:  GET /api/version 200 in 755ms
+2025-11-19T00:17:36:  GET /api/version 200 in 802ms
+2025-11-19T00:17:45:  ✓ Compiled in 334ms (2373 modules)
+2025-11-19T00:17:45:  GET /?asset=stocks&view=gtt 200 in 83ms
+2025-11-19T00:18:36:  GET /api/version 200 in 31ms
+2025-11-19T00:19:35:  GET /api/version 200 in 36ms
+2025-11-19T00:20:36:  GET /api/version 200 in 24ms
+2025-11-19T00:21:04:  ✓ Compiled in 671ms (2373 modules)
+2025-11-19T00:21:04:  GET /?asset=stocks&view=gtt 200 in 90ms
+2025-11-19T00:21:33:  ✓ Compiled in 287ms (2373 modules)
+2025-11-19T00:21:34:  GET /?asset=stocks&view=gtt 200 in 69ms
+2025-11-19T00:21:35:  GET /api/version 200 in 26ms
+2025-11-19T00:22:48:  ✓ Compiled in 931ms (2354 modules)
+2025-11-19T00:22:49:  GET /?asset=stocks&view=gtt 200 in 423ms
+2025-11-19T00:22:50:  ✓ Compiled /api/version in 227ms (1280 modules)
+2025-11-19T00:22:50:  GET /api/version 200 in 223ms
+2025-11-19T00:22:50:  GET /api/version 200 in 313ms
+2025-11-19T00:23:50:  GET /api/version 200 in 21ms
+2025-11-19T00:24:09:  GET / 200 in 377ms
+2025-11-19T00:24:10:  GET /api/version 200 in 14ms
+2025-11-19T00:24:10:  GET /api/version 200 in 7ms
+2025-11-19T00:24:11:  GET /?asset=stocks&view=gtt 200 in 26ms
+2025-11-19T00:24:11:  GET /?asset=stocks&view=gtt 200 in 13ms
+2025-11-19T00:24:30:  ✓ Compiled in 615ms (2373 modules)
+2025-11-19T00:24:31:  GET /?asset=stocks&view=gtt 200 in 277ms
+2025-11-19T00:24:31:  GET /api/version 200 in 12ms
+2025-11-19T00:24:31:  GET /api/version 200 in 4ms
+2025-11-19T00:24:31: [?25h
+2025-11-19T00:24:31: 
+2025-11-19T00:24:31: 
+2025-11-19T00:24:31: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:24:31: > next dev
+2025-11-19T00:24:31: 
+2025-11-19T00:24:32:    ▲ Next.js 15.5.6
+2025-11-19T00:24:32:    - Local:        http://localhost:3000
+2025-11-19T00:24:32:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:24:32: 
+2025-11-19T00:24:32:  ✓ Starting...
+2025-11-19T00:24:33:  ✓ Ready in 1210ms
+2025-11-19T00:25:32:  ○ Compiling /api/version ...
+2025-11-19T00:25:32:  ✓ Compiled /api/version in 998ms (296 modules)
+2025-11-19T00:25:32:  GET /api/version 200 in 1111ms
+2025-11-19T00:25:32: [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/3.pack.gz'] {
+2025-11-19T00:25:32:   errno: -2,
+2025-11-19T00:25:32:   code: 'ENOENT',
+2025-11-19T00:25:32:   syscall: 'stat',
+2025-11-19T00:25:32:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/3.pack.gz'
+2025-11-19T00:25:32: }
+2025-11-19T00:25:32:  ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/3.pack.gz'] {
+2025-11-19T00:25:32:   errno: -2,
+2025-11-19T00:25:32:   code: 'ENOENT',
+2025-11-19T00:25:32:   syscall: 'stat',
+2025-11-19T00:25:32:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/3.pack.gz'
+2025-11-19T00:25:32: }
+2025-11-19T00:25:32:  ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/3.pack.gz'] {
+2025-11-19T00:25:32:   errno: -2,
+2025-11-19T00:25:32:   code: 'ENOENT',
+2025-11-19T00:25:32:   syscall: 'stat',
+2025-11-19T00:25:32:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/3.pack.gz'
+2025-11-19T00:25:32: }
+2025-11-19T00:25:32: <w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/server-development/1.pack.gz'
+2025-11-19T00:25:33: [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/4.pack.gz'] {
+2025-11-19T00:25:33:   errno: -2,
+2025-11-19T00:25:33:   code: 'ENOENT',
+2025-11-19T00:25:33:   syscall: 'stat',
+2025-11-19T00:25:33:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/4.pack.gz'
+2025-11-19T00:25:33: }
+2025-11-19T00:25:33:  ⨯ unhandledRejection: [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/4.pack.gz'] {
+2025-11-19T00:25:33:   errno: -2,
+2025-11-19T00:25:33:   code: 'ENOENT',
+2025-11-19T00:25:33:   syscall: 'stat',
+2025-11-19T00:25:33:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/4.pack.gz'
+2025-11-19T00:25:33: }
+2025-11-19T00:25:33:  ⨯ unhandledRejection:  [Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/4.pack.gz'] {
+2025-11-19T00:25:33:   errno: -2,
+2025-11-19T00:25:33:   code: 'ENOENT',
+2025-11-19T00:25:33:   syscall: 'stat',
+2025-11-19T00:25:33:   path: '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/4.pack.gz'
+2025-11-19T00:25:33: }
+2025-11-19T00:25:33: <w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat '/Users/parthchandak/Documents/alpaca-trading/frontend/.next/cache/webpack/client-development/4.pack.gz'
+2025-11-19T00:25:52:  ○ Compiling / ...
+2025-11-19T00:25:56:  ✓ Compiled / in 4.5s (2391 modules)
+2025-11-19T00:25:57:  GET /?asset=stocks&view=gtt 200 in 5070ms
+2025-11-19T00:25:57:  ✓ Compiled in 617ms (1093 modules)
+2025-11-19T00:25:58:  GET /api/version 200 in 18ms
+2025-11-19T00:25:58:  GET /api/version 200 in 4ms
+2025-11-19T00:26:17:  ✓ Compiled in 508ms (2373 modules)
+2025-11-19T00:26:17:  GET /?asset=stocks&view=gtt 200 in 88ms
+2025-11-19T00:26:41:  ✓ Compiled in 298ms (2373 modules)
+2025-11-19T00:26:41:  GET /?asset=stocks&view=gtt 200 in 87ms
+2025-11-19T00:26:56:  GET /?asset=stocks&view=gtt 200 in 284ms
+2025-11-19T00:26:56:  GET /api/version 200 in 18ms
+2025-11-19T00:26:56:  GET /api/version 200 in 4ms
+2025-11-19T00:27:04: [?25h
+2025-11-19T00:27:04: 
+2025-11-19T00:27:04: 
+2025-11-19T00:27:04: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T00:27:04: > next dev
+2025-11-19T00:27:04: 
+2025-11-19T00:27:05:    ▲ Next.js 15.5.6
+2025-11-19T00:27:05:    - Local:        http://localhost:3000
+2025-11-19T00:27:05:    - Network:      http://192.168.4.25:3000
+2025-11-19T00:27:05: 
+2025-11-19T00:27:05:  ✓ Starting...
+2025-11-19T00:27:06:  ✓ Ready in 1261ms
+2025-11-19T00:27:14:  ○ Compiling / ...
+2025-11-19T00:27:19:  ✓ Compiled / in 4.7s (2371 modules)
+2025-11-19T00:27:20:  GET /?asset=stocks&view=gtt 200 in 5756ms
+2025-11-19T00:27:20:  ✓ Compiled in 1080ms (1092 modules)
+2025-11-19T00:27:29:  GET / 200 in 43ms
+2025-11-19T00:27:30:  ✓ Compiled /api/version in 416ms (2359 modules)
+2025-11-19T00:27:30:  GET /api/version 200 in 407ms
+2025-11-19T00:27:30:  GET /api/version 200 in 510ms
+2025-11-19T00:27:31:  GET /?asset=stocks&view=gtt 200 in 71ms
+2025-11-19T00:27:31:  GET /?asset=stocks&view=gtt 200 in 11ms
+2025-11-19T00:28:30:  GET /api/version 200 in 26ms
+2025-11-19T00:28:35:  ✓ Compiled in 600ms (2373 modules)
+2025-11-19T00:28:35:  GET /?asset=stocks&view=gtt 200 in 90ms
+2025-11-19T00:28:48:  ✓ Compiled in 399ms (2373 modules)
+2025-11-19T00:28:48:  GET /?asset=stocks&view=gtt 200 in 96ms
+2025-11-19T00:29:07:  ✓ Compiled in 336ms (2373 modules)
+2025-11-19T00:29:08:  GET /?asset=stocks&view=gtt 200 in 62ms
+2025-11-19T00:29:30:  GET /api/version 200 in 35ms
+2025-11-19T00:29:34:  ✓ Compiled in 271ms (2373 modules)
+2025-11-19T00:29:34:  GET /?asset=stocks&view=gtt 200 in 53ms
+2025-11-19T00:30:30:  GET /api/version 200 in 38ms
+2025-11-19T00:30:36:  ✓ Compiled in 1309ms (2373 modules)
+2025-11-19T00:30:36:  GET /?asset=stocks&view=gtt 200 in 92ms
+2025-11-19T00:30:45:  ✓ Compiled in 320ms (2373 modules)
+2025-11-19T00:30:46:  GET /?asset=stocks&view=gtt 200 in 72ms
+2025-11-19T00:31:15:  ✓ Compiled in 293ms (2373 modules)
+2025-11-19T00:31:15:  GET /?asset=stocks&view=gtt 200 in 87ms
+2025-11-19T00:31:20:  GET /?asset=stocks&view=gtt 200 in 303ms
+2025-11-19T00:31:20:  GET /api/version 200 in 30ms
+2025-11-19T00:31:20:  GET /api/version 200 in 4ms
+2025-11-19T00:32:20:  GET /api/version 200 in 20ms
+2025-11-19T00:33:00:  ✓ Compiled in 571ms (2373 modules)
+2025-11-19T00:33:00:  GET /?asset=stocks&view=gtt 200 in 61ms
+2025-11-19T00:33:06:  ✓ Compiled in 257ms (2373 modules)
+2025-11-19T00:33:06:  GET /?asset=stocks&view=gtt 200 in 49ms
+2025-11-19T00:33:20:  GET /api/version 200 in 40ms
+2025-11-19T00:34:20:  GET /api/version 200 in 22ms
+2025-11-19T00:35:20:  GET /api/version 200 in 32ms
+2025-11-19T00:36:20:  GET /api/version 200 in 34ms
+2025-11-19T00:37:20:  GET /api/version 200 in 18ms
+2025-11-19T00:38:20:  GET /api/version 200 in 24ms
+2025-11-19T00:39:21:  GET /api/version 200 in 35ms
+2025-11-19T00:40:38:  GET /api/version 200 in 39ms
+2025-11-19T00:41:38:  GET /api/version 200 in 20ms
+2025-11-19T00:42:38:  GET /api/version 200 in 42ms
+2025-11-19T00:43:38:  GET /api/version 200 in 23ms
+2025-11-19T00:44:38:  GET /api/version 200 in 22ms
+2025-11-19T00:45:38:  GET /api/version 200 in 36ms
+2025-11-19T00:46:38:  GET /api/version 200 in 18ms
+2025-11-19T00:47:17:  GET /?asset=stocks&view=gtt 200 in 364ms
+2025-11-19T00:47:18:  GET /api/version 200 in 5ms
+2025-11-19T00:47:18:  GET /api/version 200 in 5ms
+2025-11-19T00:48:19:  GET /api/version 200 in 23ms
+2025-11-19T00:49:19:  GET /api/version 200 in 23ms
+2025-11-19T00:49:25:  GET /?asset=stocks&view=gtt 200 in 60ms
+2025-11-19T00:49:26:  GET /api/version 200 in 7ms
+2025-11-19T00:49:26:  GET /api/version 200 in 3ms
+2025-11-19T00:50:26:  GET /api/version 200 in 23ms
+2025-11-19T00:51:02:  ⨯ ./components/gtt/StockChart.tsx
+2025-11-19T00:51:02: Module parse failed: Identifier 'totalPriceRange' has already been declared (233:10)
+2025-11-19T00:51:02: |     // Advanced label positioning algorithm with converging leader lines
+2025-11-19T00:51:02: |     // For orders at the same price, they fan out vertically but converge to ONE point
+2025-11-19T00:51:02: >     const totalPriceRange = yMax - yMin;
+2025-11-19T00:51:02: |     const minLabelDistance = totalPriceRange * 0.06; // 6% of chart height minimum between labels
+2025-11-19T00:51:02: |     const labelPositions = new Map();
+2025-11-19T00:51:02: 
+2025-11-19T00:51:02: Import trace for requested module:
+2025-11-19T00:51:02: ./components/gtt/StockChart.tsx
+2025-11-19T00:51:02: ./components/gtt/GTTOrdersTable.tsx
+2025-11-19T00:51:02: ./components/dashboard/DashboardTabsContent.tsx
+2025-11-19T00:51:02: ./app/page.tsx
+2025-11-19T00:51:16:  ✓ Compiled in 1152ms (2373 modules)
+2025-11-19T00:51:16:  GET /?asset=stocks&view=gtt 200 in 85ms
+2025-11-19T00:51:26:  GET /api/version 200 in 18ms
+2025-11-19T00:51:36:  ✓ Compiled in 420ms (2373 modules)
+2025-11-19T00:51:36:  GET /?asset=stocks&view=gtt 200 in 87ms
+2025-11-19T00:52:26:  GET /api/version 200 in 50ms
+2025-11-19T00:52:31:  GET /?asset=stocks&view=positions 200 in 30ms
+2025-11-19T00:52:31:  GET /?asset=stocks&view=positions 200 in 18ms
+2025-11-19T00:52:32:  GET /?asset=stocks&view=orders 200 in 26ms
+2025-11-19T00:52:32:  GET /?asset=stocks&view=orders 200 in 10ms
+2025-11-19T00:52:34:  GET /?asset=stocks&view=positions 200 in 30ms
+2025-11-19T00:52:34:  GET /?asset=stocks&view=positions 200 in 15ms
+2025-11-19T00:52:42:  GET /?asset=stocks&view=gtt 200 in 22ms
+2025-11-19T00:52:42:  GET /?asset=stocks&view=gtt 200 in 17ms
+2025-11-19T00:52:43:  ✓ Compiled in 505ms (2373 modules)
+2025-11-19T00:52:43:  GET /?asset=stocks&view=gtt 200 in 123ms
+2025-11-19T00:52:56:  ✓ Compiled in 333ms (2373 modules)
+2025-11-19T00:52:56:  GET /?asset=stocks&view=gtt 200 in 120ms
+2025-11-19T00:53:08:  ✓ Compiled in 300ms (2373 modules)
+2025-11-19T00:53:08:  GET /?asset=stocks&view=gtt 200 in 53ms
+2025-11-19T00:53:23:  ✓ Compiled in 394ms (2373 modules)
+2025-11-19T00:53:23:  GET /?asset=stocks&view=gtt 200 in 81ms
+2025-11-19T00:53:26:  GET /api/version 200 in 29ms
+2025-11-19T00:53:43:  ✓ Compiled in 319ms (2373 modules)
+2025-11-19T00:53:44:  GET /?asset=stocks&view=gtt 200 in 58ms
+2025-11-19T00:53:45:  GET /?asset=stocks&view=gtt 200 in 310ms
+2025-11-19T00:53:46:  GET /api/version 200 in 22ms
+2025-11-19T00:53:46:  GET /api/version 200 in 21ms
+2025-11-19T00:54:46:  GET /api/version 200 in 23ms
+2025-11-19T00:54:51:  ✓ Compiled in 536ms (2373 modules)
+2025-11-19T00:54:51:  GET /?asset=stocks&view=gtt 200 in 85ms
+2025-11-19T00:55:04:  ✓ Compiled in 339ms (2373 modules)
+2025-11-19T00:55:04:  GET /?asset=stocks&view=gtt 200 in 79ms
+2025-11-19T00:55:46:  GET /api/version 200 in 37ms
+2025-11-19T00:56:46:  GET /api/version 200 in 26ms
+2025-11-19T00:57:46:  GET /api/version 200 in 34ms
+2025-11-19T00:58:46:  GET /api/version 200 in 31ms
+2025-11-19T00:59:46:  GET /api/version 200 in 31ms
+2025-11-19T01:00:23:  ✓ Compiled in 777ms (2373 modules)
+2025-11-19T01:00:24:  GET /?asset=stocks&view=gtt 200 in 58ms
+2025-11-19T01:00:28:  GET /?asset=stocks&view=gtt 200 in 324ms
+2025-11-19T01:00:29:  GET /api/version 200 in 31ms
+2025-11-19T01:00:29:  GET /api/version 200 in 4ms
+2025-11-19T01:00:31:  ✓ Compiled in 307ms (2373 modules)
+2025-11-19T01:00:31:  GET /?asset=stocks&view=gtt 200 in 53ms
+2025-11-19T01:01:07:  ✓ Compiled in 417ms (2373 modules)
+2025-11-19T01:01:07:  GET /?asset=stocks&view=gtt 200 in 83ms
+2025-11-19T01:01:20:  GET /?asset=stocks&view=gtt 200 in 271ms
+2025-11-19T01:01:20:  GET /api/version 200 in 26ms
+2025-11-19T01:01:20:  GET /api/version 200 in 3ms
+2025-11-19T01:01:23:  ✓ Compiled in 339ms (2373 modules)
+2025-11-19T01:01:23:  GET /?asset=stocks&view=gtt 200 in 77ms
+2025-11-19T01:02:20:  GET /api/version 200 in 36ms
+2025-11-19T01:03:21:  GET /api/version 200 in 34ms
+2025-11-19T01:03:27:  ✓ Compiled in 747ms (2373 modules)
+2025-11-19T01:03:27:  GET /?asset=stocks&view=gtt 200 in 72ms
+2025-11-19T01:03:39:  ✓ Compiled in 317ms (2373 modules)
+2025-11-19T01:03:40:  GET /?asset=stocks&view=gtt 200 in 66ms
+2025-11-19T01:03:51:  ✓ Compiled in 369ms (2373 modules)
+2025-11-19T01:03:51:  GET /?asset=stocks&view=gtt 200 in 61ms
+2025-11-19T01:04:07:  ✓ Compiled in 299ms (2373 modules)
+2025-11-19T01:04:07:  GET /?asset=stocks&view=gtt 200 in 68ms
+2025-11-19T01:04:21:  GET /api/version 200 in 35ms
+2025-11-19T01:04:40:  GET /?asset=stocks&view=gtt 200 in 366ms
+2025-11-19T01:04:40:  GET /api/version 200 in 21ms
+2025-11-19T01:04:40:  GET /api/version 200 in 4ms
+2025-11-19T01:05:40:  GET /api/version 200 in 38ms
+2025-11-19T01:06:26:  ⨯ ./components/gtt/StockChart.tsx
+2025-11-19T01:06:26: Error:   [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+2025-11-19T01:06:26:      ,-[[36;1;4m/Users/parthchandak/Documents/alpaca-trading/frontend/components/gtt/StockChart.tsx[0m:553:1]
+2025-11-19T01:06:26:  [2m550[0m |               })}
+2025-11-19T01:06:26:  [2m551[0m |             </LineChart>
+2025-11-19T01:06:26:  [2m552[0m |           </ChartContainer>
+2025-11-19T01:06:26:  [2m553[0m |         )}
+2025-11-19T01:06:26:      : [35;1m         ^[0m
+2025-11-19T01:06:26:  [2m554[0m |       </div>
+2025-11-19T01:06:26:  [2m555[0m | 
+2025-11-19T01:06:26:  [2m556[0m |       {/* Legend - centered below chart */}
+2025-11-19T01:06:26:      `----
+2025-11-19T01:06:26:   [31mx[0m Expected '</', got '{'
+2025-11-19T01:06:26:      ,-[[36;1;4m/Users/parthchandak/Documents/alpaca-trading/frontend/components/gtt/StockChart.tsx[0m:556:1]
+2025-11-19T01:06:26:  [2m553[0m |         )}
+2025-11-19T01:06:26:  [2m554[0m |       </div>
+2025-11-19T01:06:26:  [2m555[0m | 
+2025-11-19T01:06:26:  [2m556[0m |       {/* Legend - centered below chart */}
+2025-11-19T01:06:26:      : [35;1m      ^[0m
+2025-11-19T01:06:26:  [2m557[0m |       <div className="flex flex-wrap justify-center gap-4 text-xs text-muted-foreground pt-2">
+2025-11-19T01:06:26:  [2m558[0m |         <div className="flex items-center gap-2">
+2025-11-19T01:06:26:  [2m559[0m |           <div className="w-6 h-0.5" style={{ backgroundColor: theme.colors.text.primary }} />
+2025-11-19T01:06:26:      `----
+2025-11-19T01:06:26: 
+2025-11-19T01:06:26: Caused by:
+2025-11-19T01:06:26:     Syntax Error
+2025-11-19T01:06:26: 
+2025-11-19T01:06:26: Import trace for requested module:
+2025-11-19T01:06:26: ./components/gtt/StockChart.tsx
+2025-11-19T01:06:26: ./components/gtt/GTTOrdersTable.tsx
+2025-11-19T01:06:26: ./components/dashboard/DashboardTabsContent.tsx
+2025-11-19T01:06:26: ./app/page.tsx
+2025-11-19T01:06:42:  ○ Compiling /_error ...
+2025-11-19T01:06:43:  ⨯ ./components/gtt/StockChart.tsx
+2025-11-19T01:06:43: Error:   [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+2025-11-19T01:06:43:      ,-[[36;1;4m/Users/parthchandak/Documents/alpaca-trading/frontend/components/gtt/StockChart.tsx[0m:553:1]
+2025-11-19T01:06:43:  [2m550[0m |               })}
+2025-11-19T01:06:43:  [2m551[0m |             </LineChart>
+2025-11-19T01:06:43:  [2m552[0m |           </ChartContainer>
+2025-11-19T01:06:43:  [2m553[0m |         )}
+2025-11-19T01:06:43:      : [35;1m         ^[0m
+2025-11-19T01:06:43:  [2m554[0m |       </div>
+2025-11-19T01:06:43:  [2m555[0m | 
+2025-11-19T01:06:43:  [2m556[0m |       {/* Legend - centered below chart */}
+2025-11-19T01:06:43:      `----
+2025-11-19T01:06:43:   [31mx[0m Expected '</', got '{'
+2025-11-19T01:06:43:      ,-[[36;1;4m/Users/parthchandak/Documents/alpaca-trading/frontend/components/gtt/StockChart.tsx[0m:556:1]
+2025-11-19T01:06:43:  [2m553[0m |         )}
+2025-11-19T01:06:43:  [2m554[0m |       </div>
+2025-11-19T01:06:43:  [2m555[0m | 
+2025-11-19T01:06:43:  [2m556[0m |       {/* Legend - centered below chart */}
+2025-11-19T01:06:43:      : [35;1m      ^[0m
+2025-11-19T01:06:43:  [2m557[0m |       <div className="flex flex-wrap justify-center gap-4 text-xs text-muted-foreground pt-2">
+2025-11-19T01:06:43:  [2m558[0m |         <div className="flex items-center gap-2">
+2025-11-19T01:06:43:  [2m559[0m |           <div className="w-6 h-0.5" style={{ backgroundColor: theme.colors.text.primary }} />
+2025-11-19T01:06:43:      `----
+2025-11-19T01:06:43: 
+2025-11-19T01:06:43: Caused by:
+2025-11-19T01:06:43:     Syntax Error
+2025-11-19T01:06:43: 
+2025-11-19T01:06:43: Import trace for requested module:
+2025-11-19T01:06:43: ./components/gtt/StockChart.tsx
+2025-11-19T01:06:43: ./components/gtt/GTTOrdersTable.tsx
+2025-11-19T01:06:43: ./components/dashboard/DashboardTabsContent.tsx
+2025-11-19T01:06:43: ./app/page.tsx
+2025-11-19T01:06:43:  ✓ Compiled /_error in 579ms (2713 modules)
+2025-11-19T01:06:43:  GET /api/version 500 in 3023ms
+2025-11-19T01:06:43:  ✓ Compiled in 1ms (1468 modules)
+2025-11-19T01:06:44:  GET /?asset=stocks&view=gtt 200 in 1333ms
+2025-11-19T01:06:44:  GET /?asset=stocks&view=gtt 200 in 10ms
+2025-11-19T01:06:44:  GET /?asset=stocks&view=gtt 200 in 9ms
+2025-11-19T01:07:01:  GET /?asset=stocks&view=gtt 200 in 341ms
+2025-11-19T01:07:01:  GET /api/version 200 in 30ms
+2025-11-19T01:07:01:  GET /api/version 200 in 4ms
+2025-11-19T01:07:09:  ✓ Compiled in 406ms (2713 modules)
+2025-11-19T01:07:09:  GET /?asset=stocks&view=gtt 200 in 79ms
+2025-11-19T01:07:11: [?25h
+2025-11-19T01:07:11: 
+2025-11-19T01:07:11: 
+2025-11-19T01:07:11: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T01:07:11: > next dev
+2025-11-19T01:07:11: 
+2025-11-19T01:07:12:    ▲ Next.js 15.5.6
+2025-11-19T01:07:12:    - Local:        http://localhost:3000
+2025-11-19T01:07:12:    - Network:      http://192.168.4.25:3000
+2025-11-19T01:07:12: 
+2025-11-19T01:07:12:  ✓ Starting...
+2025-11-19T01:07:12:  ✓ Ready in 1198ms
+2025-11-19T01:07:22:  ○ Compiling / ...
+2025-11-19T01:07:24:  ✓ Compiled / in 2.7s (2353 modules)
+2025-11-19T01:07:25:  GET /?asset=stocks&view=gtt 200 in 3421ms
+2025-11-19T01:07:25:  ✓ Compiled in 249ms (1092 modules)
+2025-11-19T01:07:34:  GET /?asset=stocks&view=gtt 200 in 43ms
+2025-11-19T01:07:35:  ✓ Compiled /api/version in 401ms (2359 modules)
+2025-11-19T01:07:36:  GET /api/version 200 in 384ms
+2025-11-19T01:07:36:  GET /api/version 200 in 497ms
+2025-11-19T01:08:35:  GET /api/version 200 in 29ms
+2025-11-19T01:09:12:  ✓ Compiled in 593ms (2373 modules)
+2025-11-19T01:09:12:  GET /?asset=stocks&view=gtt 200 in 121ms
+2025-11-19T01:09:35:  GET /api/version 200 in 31ms
+2025-11-19T01:09:37:  ✓ Compiled in 318ms (2373 modules)
+2025-11-19T01:09:37:  GET /?asset=stocks&view=gtt 200 in 71ms
+2025-11-19T01:10:35:  GET /api/version 200 in 36ms
+2025-11-19T01:11:35:  GET /api/version 200 in 20ms
+2025-11-19T01:12:22:  ✓ Compiled in 600ms (2373 modules)
+2025-11-19T01:12:22:  GET /?asset=stocks&view=gtt 200 in 101ms
+2025-11-19T01:12:35:  GET /api/version 200 in 31ms
+2025-11-19T01:12:36:  ✓ Compiled in 363ms (2373 modules)
+2025-11-19T01:12:37:  GET /?asset=stocks&view=gtt 200 in 73ms
+2025-11-19T01:13:01:  ✓ Compiled in 473ms (2373 modules)
+2025-11-19T01:13:01:  GET /?asset=stocks&view=gtt 200 in 51ms
+2025-11-19T01:13:35:  GET /api/version 200 in 34ms
+2025-11-19T01:14:35:  GET /api/version 200 in 36ms
+2025-11-19T01:14:41:  ✓ Compiled in 558ms (2373 modules)
+2025-11-19T01:14:41:  GET /?asset=stocks&view=gtt 200 in 53ms
+2025-11-19T01:15:25:  ✓ Compiled in 401ms (2373 modules)
+2025-11-19T01:15:25:  GET /?asset=stocks&view=gtt 200 in 50ms
+2025-11-19T01:15:35:  GET /api/version 200 in 31ms
+2025-11-19T01:16:35:  GET /api/version 200 in 19ms
+2025-11-19T01:17:35:  GET /api/version 200 in 29ms
+2025-11-19T01:18:35:  GET /api/version 200 in 23ms
+2025-11-19T01:19:35:  GET /api/version 200 in 23ms
+2025-11-19T01:20:35:  GET /api/version 200 in 37ms
+2025-11-19T01:21:35:  GET /api/version 200 in 33ms
+2025-11-19T01:22:36:  GET /api/version 200 in 19ms
+2025-11-19T01:23:38:  GET /api/version 200 in 35ms
+2025-11-19T01:24:38:  GET /api/version 200 in 14ms
+2025-11-19T01:25:38:  GET /api/version 200 in 19ms
+2025-11-19T01:26:38:  GET /api/version 200 in 37ms
+2025-11-19T01:27:38:  GET /api/version 200 in 31ms
+2025-11-19T01:28:38:  GET /api/version 200 in 21ms
+2025-11-19T01:29:38:  GET /api/version 200 in 16ms
+2025-11-19T01:30:38:  GET /api/version 200 in 26ms
+2025-11-19T01:31:38:  GET /api/version 200 in 20ms
+2025-11-19T01:32:38:  GET /api/version 200 in 29ms
+2025-11-19T01:33:38:  GET /api/version 200 in 33ms
+2025-11-19T01:34:38:  GET /api/version 200 in 27ms
+2025-11-19T01:35:38:  GET /api/version 200 in 18ms
+2025-11-19T01:36:38:  GET /api/version 200 in 35ms
+2025-11-19T01:37:38:  GET /api/version 200 in 43ms
+2025-11-19T01:38:38:  GET /api/version 200 in 21ms
+2025-11-19T01:39:38:  GET /api/version 200 in 18ms
+2025-11-19T01:40:38:  GET /api/version 200 in 37ms
+2025-11-19T01:41:38:  GET /api/version 200 in 49ms
+2025-11-19T01:42:38:  GET /api/version 200 in 64ms
+2025-11-19T01:43:38:  GET /api/version 200 in 28ms
+2025-11-19T01:44:38:  GET /api/version 200 in 17ms
+2025-11-19T01:45:38:  GET /api/version 200 in 16ms
+2025-11-19T01:46:38:  GET /api/version 200 in 29ms
+2025-11-19T01:47:38:  GET /api/version 200 in 40ms
+2025-11-19T01:48:38:  GET /api/version 200 in 19ms
+2025-11-19T01:49:38:  GET /api/version 200 in 20ms
+2025-11-19T01:50:38:  GET /api/version 200 in 39ms
+2025-11-19T01:51:38:  GET /api/version 200 in 25ms
+2025-11-19T01:52:38:  GET /api/version 200 in 28ms
+2025-11-19T01:53:38:  GET /api/version 200 in 35ms
+2025-11-19T01:54:38:  GET /api/version 200 in 20ms
+2025-11-19T01:55:38:  GET /api/version 200 in 43ms
+2025-11-19T01:56:38:  GET /api/version 200 in 31ms
+2025-11-19T01:57:38:  GET /api/version 200 in 22ms
+2025-11-19T01:58:38:  GET /api/version 200 in 23ms
+2025-11-19T01:59:38:  GET /api/version 200 in 31ms
+2025-11-19T02:00:38:  GET /api/version 200 in 30ms
+2025-11-19T02:01:38:  GET /api/version 200 in 46ms
+2025-11-19T02:02:38:  GET /api/version 200 in 35ms
+2025-11-19T02:03:38:  GET /api/version 200 in 36ms
+2025-11-19T02:04:38:  GET /api/version 200 in 16ms
+2025-11-19T02:05:38:  GET /api/version 200 in 26ms
+2025-11-19T02:06:38:  GET /api/version 200 in 56ms
+2025-11-19T02:07:38:  GET /api/version 200 in 16ms
+2025-11-19T02:08:38:  GET /api/version 200 in 44ms
+2025-11-19T02:09:38:  GET /api/version 200 in 31ms
+2025-11-19T02:10:38:  GET /api/version 200 in 20ms
+2025-11-19T02:11:38:  GET /api/version 200 in 45ms
+2025-11-19T02:12:38:  GET /api/version 200 in 35ms
+2025-11-19T02:13:38:  GET /api/version 200 in 54ms
+2025-11-19T02:14:38:  GET /api/version 200 in 31ms
+2025-11-19T02:15:38:  GET /api/version 200 in 25ms
+2025-11-19T02:16:38:  GET /api/version 200 in 35ms
+2025-11-19T02:17:38:  GET /api/version 200 in 28ms
+2025-11-19T02:18:38:  GET /api/version 200 in 29ms
+2025-11-19T02:19:38:  GET /api/version 200 in 55ms
+2025-11-19T02:20:38:  GET /api/version 200 in 29ms
+2025-11-19T02:21:38:  GET /api/version 200 in 20ms
+2025-11-19T02:22:38:  GET /api/version 200 in 45ms
+2025-11-19T02:23:38:  GET /api/version 200 in 44ms
+2025-11-19T02:24:38:  GET /api/version 200 in 14ms
+2025-11-19T02:25:38:  GET /api/version 200 in 31ms
+2025-11-19T02:26:38:  GET /api/version 200 in 39ms
+2025-11-19T02:27:38:  GET /api/version 200 in 27ms
+2025-11-19T02:28:38:  GET /api/version 200 in 39ms
+2025-11-19T02:29:38:  GET /api/version 200 in 22ms
+2025-11-19T02:30:38:  GET /api/version 200 in 26ms
+2025-11-19T02:31:38:  GET /api/version 200 in 34ms
+2025-11-19T02:32:38:  GET /api/version 200 in 27ms
+2025-11-19T02:33:38:  GET /api/version 200 in 69ms
+2025-11-19T02:34:38:  GET /api/version 200 in 26ms
+2025-11-19T02:35:38:  GET /api/version 200 in 18ms
+2025-11-19T02:36:38:  GET /api/version 200 in 44ms
+2025-11-19T02:37:38:  GET /api/version 200 in 37ms
+2025-11-19T02:38:38:  GET /api/version 200 in 48ms
+2025-11-19T02:39:38:  GET /api/version 200 in 22ms
+2025-11-19T02:40:38:  GET /api/version 200 in 32ms
+2025-11-19T02:41:38:  GET /api/version 200 in 37ms
+2025-11-19T02:42:38:  GET /api/version 200 in 28ms
+2025-11-19T02:43:38:  GET /api/version 200 in 37ms
+2025-11-19T02:44:38:  GET /api/version 200 in 40ms
+2025-11-19T02:45:38:  GET /api/version 200 in 12ms
+2025-11-19T02:46:38:  GET /api/version 200 in 27ms
+2025-11-19T02:47:38:  GET /api/version 200 in 26ms
+2025-11-19T02:48:38:  GET /api/version 200 in 19ms
+2025-11-19T02:49:38:  GET /api/version 200 in 23ms
+2025-11-19T02:50:38:  GET /api/version 200 in 19ms
+2025-11-19T02:51:38:  GET /api/version 200 in 23ms
+2025-11-19T02:52:38:  GET /api/version 200 in 15ms
+2025-11-19T02:53:38:  GET /api/version 200 in 48ms
+2025-11-19T02:54:38:  GET /api/version 200 in 20ms
+2025-11-19T02:55:38:  GET /api/version 200 in 22ms
+2025-11-19T02:56:38:  GET /api/version 200 in 22ms
+2025-11-19T02:57:38:  GET /api/version 200 in 21ms
+2025-11-19T02:58:38:  GET /api/version 200 in 26ms
+2025-11-19T02:59:38:  GET /api/version 200 in 20ms
+2025-11-19T03:00:38:  GET /api/version 200 in 36ms
+2025-11-19T03:01:38:  GET /api/version 200 in 56ms
+2025-11-19T03:02:38:  GET /api/version 200 in 36ms
+2025-11-19T03:03:38:  GET /api/version 200 in 28ms
+2025-11-19T03:04:38:  GET /api/version 200 in 17ms
+2025-11-19T03:05:38:  GET /api/version 200 in 32ms
+2025-11-19T03:06:38:  GET /api/version 200 in 16ms
+2025-11-19T03:07:38:  GET /api/version 200 in 31ms
+2025-11-19T03:08:38:  GET /api/version 200 in 30ms
+2025-11-19T03:09:38:  GET /api/version 200 in 18ms
+2025-11-19T03:10:38:  GET /api/version 200 in 30ms
+2025-11-19T03:11:38:  GET /api/version 200 in 36ms
+2025-11-19T03:12:38:  GET /api/version 200 in 28ms
+2025-11-19T03:13:38:  GET /api/version 200 in 20ms
+2025-11-19T03:14:38:  GET /api/version 200 in 18ms
+2025-11-19T03:15:38:  GET /api/version 200 in 35ms
+2025-11-19T03:16:38:  GET /api/version 200 in 23ms
+2025-11-19T03:17:38:  GET /api/version 200 in 51ms
+2025-11-19T03:18:38:  GET /api/version 200 in 28ms
+2025-11-19T03:19:38:  GET /api/version 200 in 32ms
+2025-11-19T03:20:38:  GET /api/version 200 in 32ms
+2025-11-19T03:21:38:  GET /api/version 200 in 62ms
+2025-11-19T03:22:38:  GET /api/version 200 in 29ms
+2025-11-19T03:23:38:  GET /api/version 200 in 19ms
+2025-11-19T03:24:38:  GET /api/version 200 in 47ms
+2025-11-19T03:25:38:  GET /api/version 200 in 30ms
+2025-11-19T03:26:38:  GET /api/version 200 in 19ms
+2025-11-19T03:27:38:  GET /api/version 200 in 50ms
+2025-11-19T03:28:38:  GET /api/version 200 in 21ms
+2025-11-19T03:29:38:  GET /api/version 200 in 26ms
+2025-11-19T03:30:38:  GET /api/version 200 in 51ms
+2025-11-19T03:31:38:  GET /api/version 200 in 25ms
+2025-11-19T03:32:38:  GET /api/version 200 in 33ms
+2025-11-19T03:33:38:  GET /api/version 200 in 33ms
+2025-11-19T03:34:38:  GET /api/version 200 in 39ms
+2025-11-19T03:35:38:  GET /api/version 200 in 36ms
+2025-11-19T03:36:38:  GET /api/version 200 in 35ms
+2025-11-19T03:37:38:  GET /api/version 200 in 32ms
+2025-11-19T03:38:38:  GET /api/version 200 in 16ms
+2025-11-19T03:39:38:  GET /api/version 200 in 30ms
+2025-11-19T03:40:38:  GET /api/version 200 in 32ms
+2025-11-19T03:41:38:  GET /api/version 200 in 37ms
+2025-11-19T03:42:38:  GET /api/version 200 in 46ms
+2025-11-19T03:43:38:  GET /api/version 200 in 61ms
+2025-11-19T03:44:38:  GET /api/version 200 in 20ms
+2025-11-19T03:45:38:  GET /api/version 200 in 43ms
+2025-11-19T03:46:38:  GET /api/version 200 in 39ms
+2025-11-19T03:47:38:  GET /api/version 200 in 18ms
+2025-11-19T03:48:38:  GET /api/version 200 in 48ms
+2025-11-19T03:49:38:  GET /api/version 200 in 29ms
+2025-11-19T03:50:38:  GET /api/version 200 in 21ms
+2025-11-19T03:51:38:  GET /api/version 200 in 22ms
+2025-11-19T03:52:38:  GET /api/version 200 in 20ms
+2025-11-19T03:53:38:  GET /api/version 200 in 23ms
+2025-11-19T03:54:38:  GET /api/version 200 in 17ms
+2025-11-19T03:55:38:  GET /api/version 200 in 18ms
+2025-11-19T03:56:38:  GET /api/version 200 in 18ms
+2025-11-19T03:57:38:  GET /api/version 200 in 34ms
+2025-11-19T03:58:38:  GET /api/version 200 in 19ms
+2025-11-19T03:59:38:  GET /api/version 200 in 18ms
+2025-11-19T04:00:38:  GET /api/version 200 in 29ms
+2025-11-19T04:01:38:  GET /api/version 200 in 24ms
+2025-11-19T04:02:38:  GET /api/version 200 in 20ms
+2025-11-19T04:03:38:  GET /api/version 200 in 27ms
+2025-11-19T04:04:38:  GET /api/version 200 in 27ms
+2025-11-19T04:05:38:  GET /api/version 200 in 14ms
+2025-11-19T04:06:38:  GET /api/version 200 in 50ms
+2025-11-19T04:07:38:  GET /api/version 200 in 28ms
+2025-11-19T04:08:38:  GET /api/version 200 in 60ms
+2025-11-19T04:09:38:  GET /api/version 200 in 21ms
+2025-11-19T04:10:38:  GET /api/version 200 in 32ms
+2025-11-19T04:11:38:  GET /api/version 200 in 42ms
+2025-11-19T04:12:38:  GET /api/version 200 in 51ms
+2025-11-19T04:13:38:  GET /api/version 200 in 26ms
+2025-11-19T04:14:38:  GET /api/version 200 in 39ms
+2025-11-19T04:15:38:  GET /api/version 200 in 52ms
+2025-11-19T04:16:38:  GET /api/version 200 in 22ms
+2025-11-19T04:17:38:  GET /api/version 200 in 17ms
+2025-11-19T04:18:38:  GET /api/version 200 in 33ms
+2025-11-19T04:19:38:  GET /api/version 200 in 14ms
+2025-11-19T04:20:38:  GET /api/version 200 in 25ms
+2025-11-19T04:21:38:  GET /api/version 200 in 37ms
+2025-11-19T04:22:38:  GET /api/version 200 in 18ms
+2025-11-19T04:23:38:  GET /api/version 200 in 21ms
+2025-11-19T04:24:38:  GET /api/version 200 in 33ms
+2025-11-19T04:25:38:  GET /api/version 200 in 18ms
+2025-11-19T04:26:38:  GET /api/version 200 in 17ms
+2025-11-19T04:27:38:  GET /api/version 200 in 27ms
+2025-11-19T04:28:38:  GET /api/version 200 in 38ms
+2025-11-19T04:29:38:  GET /api/version 200 in 26ms
+2025-11-19T04:30:38:  GET /api/version 200 in 19ms
+2025-11-19T04:31:38:  GET /api/version 200 in 56ms
+2025-11-19T04:32:38:  GET /api/version 200 in 40ms
+2025-11-19T04:33:38:  GET /api/version 200 in 18ms
+2025-11-19T04:34:38:  GET /api/version 200 in 37ms
+2025-11-19T04:35:38:  GET /api/version 200 in 30ms
+2025-11-19T04:36:38:  GET /api/version 200 in 19ms
+2025-11-19T04:37:38:  GET /api/version 200 in 20ms
+2025-11-19T04:38:38:  GET /api/version 200 in 34ms
+2025-11-19T04:39:38:  GET /api/version 200 in 34ms
+2025-11-19T04:40:38:  GET /api/version 200 in 20ms
+2025-11-19T04:41:38:  GET /api/version 200 in 39ms
+2025-11-19T04:42:38:  GET /api/version 200 in 34ms
+2025-11-19T04:43:38:  GET /api/version 200 in 27ms
+2025-11-19T04:44:38:  GET /api/version 200 in 25ms
+2025-11-19T04:45:38:  GET /api/version 200 in 32ms
+2025-11-19T04:46:38:  GET /api/version 200 in 39ms
+2025-11-19T04:47:38:  GET /api/version 200 in 48ms
+2025-11-19T04:48:38:  GET /api/version 200 in 26ms
+2025-11-19T04:49:38:  GET /api/version 200 in 27ms
+2025-11-19T04:50:38:  GET /api/version 200 in 19ms
+2025-11-19T04:51:38:  GET /api/version 200 in 22ms
+2025-11-19T04:52:38:  GET /api/version 200 in 37ms
+2025-11-19T04:53:38:  GET /api/version 200 in 57ms
+2025-11-19T04:54:38:  GET /api/version 200 in 16ms
+2025-11-19T04:55:38:  GET /api/version 200 in 45ms
+2025-11-19T04:56:38:  GET /api/version 200 in 18ms
+2025-11-19T04:57:38:  GET /api/version 200 in 32ms
+2025-11-19T04:58:38:  GET /api/version 200 in 37ms
+2025-11-19T04:59:38:  GET /api/version 200 in 35ms
+2025-11-19T05:00:38:  GET /api/version 200 in 52ms
+2025-11-19T05:01:38:  GET /api/version 200 in 49ms
+2025-11-19T05:02:38:  GET /api/version 200 in 39ms
+2025-11-19T05:03:38:  GET /api/version 200 in 32ms
+2025-11-19T05:04:38:  GET /api/version 200 in 17ms
+2025-11-19T05:05:38:  GET /api/version 200 in 19ms
+2025-11-19T05:06:38:  GET /api/version 200 in 37ms
+2025-11-19T05:07:38:  GET /api/version 200 in 28ms
+2025-11-19T05:08:38:  GET /api/version 200 in 18ms
+2025-11-19T05:09:38:  GET /api/version 200 in 18ms
+2025-11-19T05:10:38:  GET /api/version 200 in 48ms
+2025-11-19T05:11:38:  GET /api/version 200 in 48ms
+2025-11-19T05:12:38:  GET /api/version 200 in 19ms
+2025-11-19T05:13:38:  GET /api/version 200 in 37ms
+2025-11-19T05:14:38:  GET /api/version 200 in 33ms
+2025-11-19T05:15:38:  GET /api/version 200 in 16ms
+2025-11-19T05:16:38:  GET /api/version 200 in 34ms
+2025-11-19T05:17:38:  GET /api/version 200 in 43ms
+2025-11-19T05:18:38:  GET /api/version 200 in 14ms
+2025-11-19T05:19:38:  GET /api/version 200 in 52ms
+2025-11-19T05:20:38:  GET /api/version 200 in 26ms
+2025-11-19T05:21:38:  GET /api/version 200 in 35ms
+2025-11-19T05:22:38:  GET /api/version 200 in 24ms
+2025-11-19T05:23:38:  GET /api/version 200 in 20ms
+2025-11-19T05:24:38:  GET /api/version 200 in 35ms
+2025-11-19T05:25:38:  GET /api/version 200 in 20ms
+2025-11-19T05:26:38:  GET /api/version 200 in 40ms
+2025-11-19T05:27:38:  GET /api/version 200 in 50ms
+2025-11-19T05:28:38:  GET /api/version 200 in 27ms
+2025-11-19T05:29:38:  GET /api/version 200 in 32ms
+2025-11-19T05:30:38:  GET /api/version 200 in 28ms
+2025-11-19T05:31:38:  GET /api/version 200 in 35ms
+2025-11-19T05:32:38:  GET /api/version 200 in 35ms
+2025-11-19T05:33:38:  GET /api/version 200 in 32ms
+2025-11-19T05:34:38:  GET /api/version 200 in 28ms
+2025-11-19T05:35:38:  GET /api/version 200 in 17ms
+2025-11-19T05:36:38:  GET /api/version 200 in 31ms
+2025-11-19T05:37:38:  GET /api/version 200 in 24ms
+2025-11-19T05:38:38:  GET /api/version 200 in 35ms
+2025-11-19T05:39:38:  GET /api/version 200 in 18ms
+2025-11-19T05:40:38:  GET /api/version 200 in 30ms
+2025-11-19T05:41:38:  GET /api/version 200 in 25ms
+2025-11-19T05:42:38:  GET /api/version 200 in 28ms
+2025-11-19T05:43:38:  GET /api/version 200 in 52ms
+2025-11-19T05:44:38:  GET /api/version 200 in 23ms
+2025-11-19T05:45:38:  GET /api/version 200 in 37ms
+2025-11-19T05:46:38:  GET /api/version 200 in 28ms
+2025-11-19T05:47:38:  GET /api/version 200 in 27ms
+2025-11-19T05:48:38:  GET /api/version 200 in 37ms
+2025-11-19T05:49:38:  GET /api/version 200 in 16ms
+2025-11-19T05:50:38:  GET /api/version 200 in 27ms
+2025-11-19T05:51:38:  GET /api/version 200 in 22ms
+2025-11-19T05:52:38:  GET /api/version 200 in 27ms
+2025-11-19T05:53:38:  GET /api/version 200 in 16ms
+2025-11-19T05:54:38:  GET /api/version 200 in 35ms
+2025-11-19T05:55:38:  GET /api/version 200 in 49ms
+2025-11-19T05:56:38:  GET /api/version 200 in 19ms
+2025-11-19T05:57:38:  GET /api/version 200 in 39ms
+2025-11-19T05:58:38:  GET /api/version 200 in 34ms
+2025-11-19T05:59:38:  GET /api/version 200 in 32ms
+2025-11-19T06:00:38:  GET /api/version 200 in 41ms
+2025-11-19T06:01:38:  GET /api/version 200 in 45ms
+2025-11-19T06:02:38:  GET /api/version 200 in 37ms
+2025-11-19T06:03:38:  GET /api/version 200 in 52ms
+2025-11-19T06:04:38:  GET /api/version 200 in 48ms
+2025-11-19T06:05:38:  GET /api/version 200 in 18ms
+2025-11-19T06:06:38:  GET /api/version 200 in 39ms
+2025-11-19T06:07:38:  GET /api/version 200 in 27ms
+2025-11-19T06:08:38:  GET /api/version 200 in 26ms
+2025-11-19T06:09:38:  GET /api/version 200 in 36ms
+2025-11-19T06:10:38:  GET /api/version 200 in 41ms
+2025-11-19T06:11:38:  GET /api/version 200 in 43ms
+2025-11-19T06:12:38:  GET /api/version 200 in 51ms
+2025-11-19T06:13:38:  GET /api/version 200 in 44ms
+2025-11-19T06:14:38:  GET /api/version 200 in 45ms
+2025-11-19T06:15:38:  GET /api/version 200 in 45ms
+2025-11-19T06:16:38:  GET /api/version 200 in 39ms
+2025-11-19T06:17:38:  GET /api/version 200 in 30ms
+2025-11-19T06:18:38:  GET /api/version 200 in 17ms
+2025-11-19T06:19:38:  GET /api/version 200 in 27ms
+2025-11-19T06:20:38:  GET /api/version 200 in 28ms
+2025-11-19T06:21:38:  GET /api/version 200 in 23ms
+2025-11-19T06:22:38:  GET /api/version 200 in 38ms
+2025-11-19T06:23:38:  GET /api/version 200 in 25ms
+2025-11-19T06:24:38:  GET /api/version 200 in 41ms
+2025-11-19T06:25:38:  GET /api/version 200 in 34ms
+2025-11-19T06:26:38:  GET /api/version 200 in 29ms
+2025-11-19T06:27:38:  GET /api/version 200 in 37ms
+2025-11-19T06:28:38:  GET /api/version 200 in 43ms
+2025-11-19T06:29:38:  GET /api/version 200 in 21ms
+2025-11-19T06:30:38:  GET /api/version 200 in 32ms
+2025-11-19T06:31:38:  GET /api/version 200 in 41ms
+2025-11-19T06:32:38:  GET /api/version 200 in 31ms
+2025-11-19T06:33:38:  GET /api/version 200 in 33ms
+2025-11-19T06:34:38:  GET /api/version 200 in 40ms
+2025-11-19T06:35:38:  GET /api/version 200 in 23ms
+2025-11-19T06:36:38:  GET /api/version 200 in 25ms
+2025-11-19T06:37:38:  GET /api/version 200 in 46ms
+2025-11-19T06:38:38:  GET /api/version 200 in 68ms
+2025-11-19T06:39:38:  GET /api/version 200 in 31ms
+2025-11-19T06:40:38:  GET /api/version 200 in 34ms
+2025-11-19T06:41:38:  GET /api/version 200 in 26ms
+2025-11-19T06:42:38:  GET /api/version 200 in 30ms
+2025-11-19T06:43:38:  GET /api/version 200 in 38ms
+2025-11-19T06:44:38:  GET /api/version 200 in 30ms
+2025-11-19T06:45:38:  GET /api/version 200 in 16ms
+2025-11-19T06:46:38:  GET /api/version 200 in 59ms
+2025-11-19T06:47:38:  GET /api/version 200 in 42ms
+2025-11-19T06:48:38:  GET /api/version 200 in 30ms
+2025-11-19T06:49:38:  GET /api/version 200 in 19ms
+2025-11-19T06:50:38:  GET /api/version 200 in 53ms
+2025-11-19T06:51:38:  GET /api/version 200 in 52ms
+2025-11-19T06:52:38:  GET /api/version 200 in 25ms
+2025-11-19T06:53:38:  GET /api/version 200 in 18ms
+2025-11-19T06:54:38:  GET /api/version 200 in 29ms
+2025-11-19T06:55:38:  GET /api/version 200 in 55ms
+2025-11-19T06:56:38:  GET /api/version 200 in 27ms
+2025-11-19T06:57:38:  GET /api/version 200 in 29ms
+2025-11-19T06:58:38:  GET /api/version 200 in 31ms
+2025-11-19T06:59:38:  GET /api/version 200 in 26ms
+2025-11-19T07:00:38:  GET /api/version 200 in 32ms
+2025-11-19T07:01:38:  GET /api/version 200 in 36ms
+2025-11-19T07:02:38:  GET /api/version 200 in 39ms
+2025-11-19T07:03:38:  GET /api/version 200 in 29ms
+2025-11-19T07:04:38:  GET /api/version 200 in 27ms
+2025-11-19T07:05:38:  GET /api/version 200 in 28ms
+2025-11-19T07:06:38:  GET /api/version 200 in 36ms
+2025-11-19T07:07:38:  GET /api/version 200 in 21ms
+2025-11-19T07:08:38:  GET /api/version 200 in 22ms
+2025-11-19T07:09:38:  GET /api/version 200 in 30ms
+2025-11-19T07:10:38:  GET /api/version 200 in 36ms
+2025-11-19T07:11:38:  GET /api/version 200 in 27ms
+2025-11-19T07:12:38:  GET /api/version 200 in 28ms
+2025-11-19T07:13:38:  GET /api/version 200 in 48ms
+2025-11-19T07:14:38:  GET /api/version 200 in 40ms
+2025-11-19T07:15:38:  GET /api/version 200 in 19ms
+2025-11-19T07:16:38:  GET /api/version 200 in 23ms
+2025-11-19T07:17:38:  GET /api/version 200 in 51ms
+2025-11-19T07:18:38:  GET /api/version 200 in 71ms
+2025-11-19T07:19:38:  GET /api/version 200 in 61ms
+2025-11-19T07:20:38:  GET /api/version 200 in 49ms
+2025-11-19T07:21:38:  GET /api/version 200 in 31ms
+2025-11-19T07:22:38:  GET /api/version 200 in 29ms
+2025-11-19T07:23:38:  GET /api/version 200 in 18ms
+2025-11-19T07:24:38:  GET /api/version 200 in 22ms
+2025-11-19T07:25:38:  GET /api/version 200 in 19ms
+2025-11-19T07:26:38:  GET /api/version 200 in 41ms
+2025-11-19T07:27:38:  GET /api/version 200 in 37ms
+2025-11-19T07:28:38:  GET /api/version 200 in 33ms
+2025-11-19T07:29:38:  GET /api/version 200 in 20ms
+2025-11-19T07:30:38:  GET /api/version 200 in 45ms
+2025-11-19T07:31:38:  GET /api/version 200 in 17ms
+2025-11-19T07:32:38:  GET /api/version 200 in 56ms
+2025-11-19T07:33:38:  GET /api/version 200 in 32ms
+2025-11-19T07:34:38:  GET /api/version 200 in 35ms
+2025-11-19T07:35:38:  GET /api/version 200 in 25ms
+2025-11-19T07:36:38:  GET /api/version 200 in 28ms
+2025-11-19T07:37:38:  GET /api/version 200 in 26ms
+2025-11-19T07:38:38:  GET /api/version 200 in 20ms
+2025-11-19T07:39:38:  GET /api/version 200 in 31ms
+2025-11-19T07:40:38:  GET /api/version 200 in 26ms
+2025-11-19T07:41:38:  GET /api/version 200 in 28ms
+2025-11-19T07:42:38:  GET /api/version 200 in 31ms
+2025-11-19T07:43:38:  GET /api/version 200 in 40ms
+2025-11-19T07:44:38:  GET /api/version 200 in 43ms
+2025-11-19T07:45:38:  GET /api/version 200 in 35ms
+2025-11-19T07:46:38:  GET /api/version 200 in 48ms
+2025-11-19T07:47:38:  GET /api/version 200 in 19ms
+2025-11-19T07:48:38:  GET /api/version 200 in 28ms
+2025-11-19T07:49:38:  GET /api/version 200 in 21ms
+2025-11-19T07:50:38:  GET /api/version 200 in 23ms
+2025-11-19T07:51:38:  GET /api/version 200 in 62ms
+2025-11-19T07:52:38:  GET /api/version 200 in 53ms
+2025-11-19T07:53:38:  GET /api/version 200 in 22ms
+2025-11-19T07:54:38:  GET /api/version 200 in 17ms
+2025-11-19T07:55:38:  GET /api/version 200 in 30ms
+2025-11-19T07:56:38:  GET /api/version 200 in 21ms
+2025-11-19T07:57:38:  GET /api/version 200 in 25ms
+2025-11-19T07:58:38:  GET /api/version 200 in 27ms
+2025-11-19T07:59:38:  GET /api/version 200 in 47ms
+2025-11-19T08:00:38:  GET /api/version 200 in 37ms
+2025-11-19T08:01:38:  GET /api/version 200 in 31ms
+2025-11-19T08:02:38:  GET /api/version 200 in 27ms
+2025-11-19T08:03:38:  GET /api/version 200 in 17ms
+2025-11-19T08:04:38:  GET /api/version 200 in 27ms
+2025-11-19T08:05:38:  GET /api/version 200 in 21ms
+2025-11-19T08:06:38:  GET /api/version 200 in 15ms
+2025-11-19T08:07:38:  GET /api/version 200 in 31ms
+2025-11-19T08:08:38:  GET /api/version 200 in 29ms
+2025-11-19T08:09:38:  GET /api/version 200 in 30ms
+2025-11-19T08:10:38:  GET /api/version 200 in 19ms
+2025-11-19T08:11:38:  GET /api/version 200 in 16ms
+2025-11-19T08:12:38:  GET /api/version 200 in 33ms
+2025-11-19T08:13:38:  GET /api/version 200 in 33ms
+2025-11-19T08:14:38:  GET /api/version 200 in 43ms
+2025-11-19T08:15:38:  GET /api/version 200 in 19ms
+2025-11-19T08:16:38:  GET /api/version 200 in 23ms
+2025-11-19T08:17:38:  GET /api/version 200 in 36ms
+2025-11-19T08:18:38:  GET /api/version 200 in 24ms
+2025-11-19T08:19:38:  GET /api/version 200 in 26ms
+2025-11-19T08:20:38:  GET /api/version 200 in 35ms
+2025-11-19T08:21:38:  GET /api/version 200 in 17ms
+2025-11-19T08:22:38:  GET /api/version 200 in 28ms
+2025-11-19T08:23:38:  GET /api/version 200 in 28ms
+2025-11-19T08:24:38:  GET /api/version 200 in 38ms
+2025-11-19T08:25:38:  GET /api/version 200 in 18ms
+2025-11-19T08:26:38:  GET /api/version 200 in 53ms
+2025-11-19T08:27:38:  GET /api/version 200 in 33ms
+2025-11-19T08:28:38:  GET /api/version 200 in 21ms
+2025-11-19T08:29:38:  GET /api/version 200 in 17ms
+2025-11-19T08:30:38:  GET /api/version 200 in 21ms
+2025-11-19T08:31:38:  GET /api/version 200 in 28ms
+2025-11-19T08:32:38:  GET /api/version 200 in 28ms
+2025-11-19T08:33:38:  GET /api/version 200 in 35ms
+2025-11-19T08:34:38:  GET /api/version 200 in 50ms
+2025-11-19T08:35:38:  GET /api/version 200 in 25ms
+2025-11-19T08:36:38:  GET /api/version 200 in 40ms
+2025-11-19T08:37:38:  GET /api/version 200 in 15ms
+2025-11-19T08:38:38:  GET /api/version 200 in 33ms
+2025-11-19T08:39:38:  GET /api/version 200 in 15ms
+2025-11-19T08:40:38:  GET /api/version 200 in 19ms
+2025-11-19T08:41:38:  GET /api/version 200 in 43ms
+2025-11-19T08:42:38:  GET /api/version 200 in 20ms
+2025-11-19T08:43:38:  GET /api/version 200 in 27ms
+2025-11-19T08:44:38:  GET /api/version 200 in 16ms
+2025-11-19T08:45:38:  GET /api/version 200 in 24ms
+2025-11-19T08:46:38:  GET /api/version 200 in 20ms
+2025-11-19T08:47:38:  GET /api/version 200 in 20ms
+2025-11-19T08:48:38:  GET /api/version 200 in 19ms
+2025-11-19T08:49:38:  GET /api/version 200 in 20ms
+2025-11-19T08:50:38:  GET /api/version 200 in 21ms
+2025-11-19T08:51:38:  GET /api/version 200 in 20ms
+2025-11-19T08:52:38:  GET /api/version 200 in 22ms
+2025-11-19T08:53:38:  GET /api/version 200 in 17ms
+2025-11-19T08:54:38:  GET /api/version 200 in 16ms
+2025-11-19T08:55:38:  GET /api/version 200 in 22ms
+2025-11-19T08:56:38:  GET /api/version 200 in 16ms
+2025-11-19T08:57:38:  GET /api/version 200 in 40ms
+2025-11-19T08:58:38:  GET /api/version 200 in 16ms
+2025-11-19T08:59:38:  GET /api/version 200 in 18ms
+2025-11-19T09:00:38:  GET /api/version 200 in 29ms
+2025-11-19T09:01:38:  GET /api/version 200 in 17ms
+2025-11-19T09:02:38:  GET /api/version 200 in 12ms
+2025-11-19T09:03:38:  GET /api/version 200 in 27ms
+2025-11-19T09:04:38:  GET /api/version 200 in 17ms
+2025-11-19T09:05:38:  GET /api/version 200 in 27ms
+2025-11-19T09:06:38:  GET /api/version 200 in 30ms
+2025-11-19T09:07:38:  GET /api/version 200 in 27ms
+2025-11-19T09:08:38:  GET /api/version 200 in 18ms
+2025-11-19T09:09:38:  GET /api/version 200 in 31ms
+2025-11-19T09:10:38:  GET /api/version 200 in 23ms
+2025-11-19T09:11:38:  GET /api/version 200 in 20ms
+2025-11-19T09:12:38:  GET /api/version 200 in 29ms
+2025-11-19T09:13:38:  GET /api/version 200 in 18ms
+2025-11-19T09:14:38:  GET /api/version 200 in 36ms
+2025-11-19T09:15:38:  GET /api/version 200 in 27ms
+2025-11-19T09:16:38:  GET /api/version 200 in 18ms
+2025-11-19T09:17:38:  GET /api/version 200 in 33ms
+2025-11-19T09:18:38:  GET /api/version 200 in 57ms
+2025-11-19T09:19:39:  GET /api/version 200 in 21ms
+2025-11-19T09:20:38:  GET /api/version 200 in 45ms
+2025-11-19T09:21:38:  GET /api/version 200 in 21ms
+2025-11-19T09:22:38:  GET /api/version 200 in 18ms
+2025-11-19T09:23:38:  GET /api/version 200 in 17ms
+2025-11-19T09:24:38:  GET /api/version 200 in 17ms
+2025-11-19T09:25:38:  GET /api/version 200 in 17ms
+2025-11-19T09:26:38:  GET /api/version 200 in 29ms
+2025-11-19T09:27:38:  GET /api/version 200 in 21ms
+2025-11-19T09:28:38:  GET /api/version 200 in 17ms
+2025-11-19T09:29:38:  GET /api/version 200 in 46ms
+2025-11-19T09:30:38:  GET /api/version 200 in 19ms
+2025-11-19T09:31:38:  GET /api/version 200 in 14ms
+2025-11-19T09:32:38:  GET /api/version 200 in 22ms
+2025-11-19T09:33:38:  GET /api/version 200 in 28ms
+2025-11-19T09:34:38:  GET /api/version 200 in 19ms
+2025-11-19T09:35:38:  GET /api/version 200 in 22ms
+2025-11-19T09:36:38:  GET /api/version 200 in 13ms
+2025-11-19T09:37:38:  GET /api/version 200 in 35ms
+2025-11-19T09:38:38:  GET /api/version 200 in 17ms
+2025-11-19T09:39:38:  GET /api/version 200 in 21ms
+2025-11-19T09:40:38:  GET /api/version 200 in 16ms
+2025-11-19T09:41:38:  GET /api/version 200 in 15ms
+2025-11-19T09:42:38:  GET /api/version 200 in 24ms
+2025-11-19T09:43:38:  GET /api/version 200 in 26ms
+2025-11-19T09:44:38:  GET /api/version 200 in 28ms
+2025-11-19T09:45:38:  GET /api/version 200 in 22ms
+2025-11-19T09:46:38:  GET /api/version 200 in 17ms
+2025-11-19T09:47:38:  GET /api/version 200 in 36ms
+2025-11-19T09:48:38:  GET /api/version 200 in 52ms
+2025-11-19T09:49:38:  GET /api/version 200 in 16ms
+2025-11-19T09:50:38:  GET /api/version 200 in 27ms
+2025-11-19T09:51:38:  GET /api/version 200 in 22ms
+2025-11-19T09:52:38:  GET /api/version 200 in 18ms
+2025-11-19T09:53:38:  GET /api/version 200 in 19ms
+2025-11-19T09:54:38:  GET /api/version 200 in 45ms
+2025-11-19T09:55:38:  GET /api/version 200 in 16ms
+2025-11-19T09:56:38:  GET /api/version 200 in 46ms
+2025-11-19T09:57:38:  GET /api/version 200 in 18ms
+2025-11-19T09:58:38:  GET /api/version 200 in 25ms
+2025-11-19T09:59:38:  GET /api/version 200 in 25ms
+2025-11-19T10:00:38:  GET /api/version 200 in 30ms
+2025-11-19T10:01:38:  GET /api/version 200 in 15ms
+2025-11-19T10:02:38:  GET /api/version 200 in 14ms
+2025-11-19T10:03:38:  GET /api/version 200 in 31ms
+2025-11-19T10:04:38:  GET /api/version 200 in 31ms
+2025-11-19T10:05:38:  GET /api/version 200 in 47ms
+2025-11-19T10:06:38:  GET /api/version 200 in 21ms
+2025-11-19T10:07:38:  GET /api/version 200 in 18ms
+2025-11-19T10:08:38:  GET /api/version 200 in 54ms
+2025-11-19T10:09:38:  GET /api/version 200 in 34ms
+2025-11-19T10:10:38:  GET /api/version 200 in 41ms
+2025-11-19T10:11:38:  GET /api/version 200 in 15ms
+2025-11-19T10:12:38:  GET /api/version 200 in 37ms
+2025-11-19T10:13:38:  GET /api/version 200 in 56ms
+2025-11-19T10:14:38:  GET /api/version 200 in 30ms
+2025-11-19T10:15:38:  GET /api/version 200 in 19ms
+2025-11-19T10:58:06:  ✓ Compiled in 2.9s (2354 modules)
+2025-11-19T10:58:14:  GET / 200 in 568ms
+2025-11-19T10:58:15:  ✓ Compiled /api/version in 120ms (1280 modules)
+2025-11-19T10:58:15:  GET /api/version 200 in 213ms
+2025-11-19T10:58:15:  GET /api/version 200 in 214ms
+2025-11-19T10:58:15:  ✓ Compiled /login in 474ms (2366 modules)
+2025-11-19T10:58:16:  GET /login 200 in 684ms
+2025-11-19T10:58:16:  GET /login 200 in 771ms
+2025-11-19T10:58:16:  ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+2025-11-19T10:58:16:  GET /api/version 200 in 18ms
+2025-11-19T10:58:23:  GET / 200 in 54ms
+2025-11-19T10:58:23:  GET /api/version 200 in 6ms
+2025-11-19T10:58:30:  ✓ Compiled /activities in 464ms (2401 modules)
+2025-11-19T10:58:30:  GET /activities 200 in 530ms
+2025-11-19T10:58:30:  GET /api/version 200 in 14ms
+2025-11-19T10:58:37:  ✓ Compiled /market-data in 369ms (2410 modules)
+2025-11-19T10:58:37:  GET /market-data 200 in 426ms
+2025-11-19T10:58:38:  GET /api/version 200 in 9ms
+2025-11-19T10:58:39:  GET / 200 in 45ms
+2025-11-19T10:58:39:  GET /api/version 200 in 14ms
+2025-11-19T10:58:45:  GET /?asset=stocks&view=gtt 200 in 29ms
+2025-11-19T10:58:45:  GET /?asset=stocks&view=gtt 200 in 24ms
+2025-11-19T10:59:16:  GET /api/version 200 in 26ms
+2025-11-19T11:00:16:  GET /api/version 200 in 49ms
+2025-11-19T11:01:16:  GET /api/version 200 in 37ms
+2025-11-19T11:01:17:  ✓ Compiled in 923ms (2418 modules)
+2025-11-19T11:01:17:  GET /?asset=stocks&view=gtt 200 in 90ms
+2025-11-19T11:02:17:  GET /api/version 200 in 17ms
+2025-11-19T11:03:17:  GET /api/version 200 in 26ms
+2025-11-19T11:04:17:  GET /api/version 200 in 21ms
+2025-11-19T11:05:20:  GET /api/version 200 in 14ms
+2025-11-19T11:06:20:  GET /api/version 200 in 19ms
+2025-11-19T11:07:20:  GET /api/version 200 in 19ms
+2025-11-19T11:08:20:  GET /api/version 200 in 34ms
+2025-11-19T11:09:20:  GET /api/version 200 in 20ms
+2025-11-19T11:10:20:  GET /api/version 200 in 45ms
+2025-11-19T11:11:20:  GET /api/version 200 in 16ms
+2025-11-19T11:12:20:  GET /api/version 200 in 18ms
+2025-11-19T11:13:20:  GET /api/version 200 in 38ms
+2025-11-19T11:14:20:  GET /api/version 200 in 18ms
+2025-11-19T11:15:20:  GET /api/version 200 in 22ms
+2025-11-19T11:16:20:  GET /api/version 200 in 24ms
+2025-11-19T11:17:20:  GET /api/version 200 in 29ms
+2025-11-19T11:18:20:  GET /api/version 200 in 35ms
+2025-11-19T11:19:20:  GET /api/version 200 in 20ms
+2025-11-19T11:20:20:  GET /api/version 200 in 33ms
+2025-11-19T11:21:20:  GET /api/version 200 in 21ms
+2025-11-19T11:22:20:  GET /api/version 200 in 16ms
+2025-11-19T11:23:20:  GET /api/version 200 in 35ms
+2025-11-19T11:24:20:  GET /api/version 200 in 22ms
+2025-11-19T11:25:20:  GET /api/version 200 in 19ms
+2025-11-19T11:26:20:  GET /api/version 200 in 20ms
+2025-11-19T11:27:20:  GET /api/version 200 in 31ms
+2025-11-19T11:28:20:  GET /api/version 200 in 53ms
+2025-11-19T11:29:20:  GET /api/version 200 in 34ms
+2025-11-19T11:30:20:  GET /api/version 200 in 52ms
+2025-11-19T11:31:20:  GET /api/version 200 in 33ms
+2025-11-19T11:32:20:  GET /api/version 200 in 21ms
+2025-11-19T11:33:20:  GET /api/version 200 in 23ms
+2025-11-19T11:34:20:  GET /api/version 200 in 15ms
+2025-11-19T11:35:20:  GET /api/version 200 in 31ms
+2025-11-19T11:36:20:  GET /api/version 200 in 17ms
+2025-11-19T11:37:20:  GET /api/version 200 in 31ms
+2025-11-19T11:38:20:  GET /api/version 200 in 33ms
+2025-11-19T11:39:20:  GET /api/version 200 in 19ms
+2025-11-19T11:40:20:  GET /api/version 200 in 19ms
+2025-11-19T11:41:20:  GET /api/version 200 in 44ms
+2025-11-19T11:42:20:  GET /api/version 200 in 32ms
+2025-11-19T11:43:20:  GET /api/version 200 in 21ms
+2025-11-19T11:44:20:  GET /api/version 200 in 23ms
+2025-11-19T11:45:20:  GET /api/version 200 in 20ms
+2025-11-19T11:46:20:  GET /api/version 200 in 42ms
+2025-11-19T11:47:20:  GET /api/version 200 in 23ms
+2025-11-19T11:48:20:  GET /api/version 200 in 32ms
+2025-11-19T11:49:20:  GET /api/version 200 in 35ms
+2025-11-19T11:50:20:  GET /api/version 200 in 29ms
+2025-11-19T11:51:20:  GET /api/version 200 in 22ms
+2025-11-19T11:52:20:  GET /api/version 200 in 36ms
+2025-11-19T11:53:20:  GET /api/version 200 in 44ms
+2025-11-19T11:54:20:  GET /api/version 200 in 21ms
+2025-11-19T11:55:20:  GET /api/version 200 in 32ms
+2025-11-19T11:56:20:  GET /api/version 200 in 13ms
+2025-11-19T11:57:20:  GET /api/version 200 in 39ms
+2025-11-19T11:58:20:  GET /api/version 200 in 32ms
+2025-11-19T11:59:20:  GET /api/version 200 in 20ms
+2025-11-19T12:00:20:  GET /api/version 200 in 29ms
+2025-11-19T12:01:20:  GET /api/version 200 in 40ms
+2025-11-19T12:02:20:  GET /api/version 200 in 21ms
+2025-11-19T12:03:20:  GET /api/version 200 in 32ms
+2025-11-19T12:04:20:  GET /api/version 200 in 22ms
+2025-11-19T12:05:20:  GET /api/version 200 in 64ms
+2025-11-19T12:06:20:  GET /api/version 200 in 23ms
+2025-11-19T12:07:20:  GET /api/version 200 in 56ms
+2025-11-19T12:08:20:  GET /api/version 200 in 37ms
+2025-11-19T12:54:47:  ✓ Compiled in 1030ms (2399 modules)
+2025-11-19T13:19:52:  ✓ Compiled in 1094ms (2385 modules)
+2025-11-19T13:19:52:  ✓ Compiled in 210ms (2385 modules)
+2025-11-19T13:19:54:  ✓ Compiled in 199ms (2385 modules)
+2025-11-19T13:20:21:  ✓ Compiled in 471ms (2399 modules)
+2025-11-19T13:20:23:  ✓ Compiled in 451ms (2399 modules)
+2025-11-19T13:20:24:  ✓ Compiled in 315ms (2399 modules)
+2025-11-19T13:20:26:  ✓ Compiled in 295ms (2399 modules)
+2025-11-19T13:20:27:  ✓ Compiled in 291ms (2399 modules)
+2025-11-19T13:20:28:  ✓ Compiled in 347ms (2399 modules)
+2025-11-19T13:20:39:  ✓ Compiled in 330ms (2399 modules)
+2025-11-19T13:21:00:  ✓ Compiled in 496ms (2399 modules)
+2025-11-19T13:22:57:  GET /?asset=stocks&view=gtt 200 in 464ms
+2025-11-19T13:22:58:  ○ Compiling /api/version ...
+2025-11-19T13:22:58:  ✓ Compiled /api/version in 581ms (1304 modules)
+2025-11-19T13:22:58:  GET /api/version 200 in 657ms
+2025-11-19T13:22:58:  GET /api/version 200 in 679ms
+2025-11-19T13:22:59:  GET /?asset=stocks&view=gtt 200 in 287ms
+2025-11-19T13:22:59:  GET /api/version 200 in 12ms
+2025-11-19T13:22:59:  GET /api/version 200 in 11ms
+2025-11-19T13:23:09: [?25h
+2025-11-19T13:23:09: 
+2025-11-19T13:23:09: 
+2025-11-19T13:23:09: > alpaca-trading-frontend@1.0.0 dev
+2025-11-19T13:23:09: > next dev
+2025-11-19T13:23:09: 
+2025-11-19T13:23:10:    ▲ Next.js 15.5.6
+2025-11-19T13:23:10:    - Local:        http://localhost:3000
+2025-11-19T13:23:10:    - Network:      http://192.168.4.25:3000
+2025-11-19T13:23:10: 
+2025-11-19T13:23:10:  ✓ Starting...
+2025-11-19T13:23:11:  ✓ Ready in 1310ms
+2025-11-19T13:24:00:  ○ Compiling /api/version ...
+2025-11-19T13:24:00:  ✓ Compiled /api/version in 716ms (296 modules)
+2025-11-19T13:24:00:  GET /api/version 200 in 839ms
+2025-11-19T13:25:00:  GET /api/version 200 in 29ms
+2025-11-19T13:26:00:  GET /api/version 200 in 19ms
+2025-11-19T13:27:00:  GET /api/version 200 in 25ms
+2025-11-19T13:28:00:  GET /api/version 200 in 19ms
+2025-11-19T13:29:00:  GET /api/version 200 in 20ms
+2025-11-19T13:30:36:  GET /api/version 200 in 18ms
+2025-11-19T13:31:35:  GET /api/version 200 in 18ms
+2025-11-19T13:32:35:  GET /api/version 200 in 16ms
+2025-11-19T13:33:35:  GET /api/version 200 in 21ms
+2025-11-19T13:59:09:  ✓ Compiled in 89ms
+2025-11-19T13:59:09:  ✓ Compiled in 170ms (193 modules)

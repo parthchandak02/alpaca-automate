@@ -1,0 +1,8 @@
+{
+  "/api/version/route": "app/api/version/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/activities/page": "app/activities/page.js",
+  "/login/page": "app/login/page.js",
+  "/market-data/page": "app/market-data/page.js",
+  "/page": "app/page.js"
+}

@@ -1,0 +1,73 @@
+{
+  "pages": {
+    "/_not-found/page": [
+      "static/chunks/webpack-5a016c7a1388e648.js",
+      "static/chunks/4bd1b696-409494caf8c83275.js",
+      "static/chunks/255-a78b69fc76e8afca.js",
+      "static/chunks/main-app-b460cb4dc32f2cfb.js",
+      "static/chunks/app/_not-found/page-05315ffe2b071ea6.js"
+    ],
+    "/api/version/route": [
+      "static/chunks/webpack-5a016c7a1388e648.js",
+      "static/chunks/4bd1b696-409494caf8c83275.js",
+      "static/chunks/255-a78b69fc76e8afca.js",
+      "static/chunks/main-app-b460cb4dc32f2cfb.js",
+      "static/chunks/app/api/version/route-d540c7ec9cba183f.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack-5a016c7a1388e648.js",
+      "static/chunks/4bd1b696-409494caf8c83275.js",
+      "static/chunks/255-a78b69fc76e8afca.js",
+      "static/chunks/main-app-b460cb4dc32f2cfb.js",
+      "static/css/ad48d74ac923dec4.css",
+      "static/chunks/112-d8eb11ac5e726e83.js",
+      "static/chunks/221-229ce17977e4c56a.js",
+      "static/chunks/498-3d8bf8b583375c8e.js",
+      "static/chunks/363-b081d8e0eefbfa05.js",
+      "static/chunks/app/layout-6f2c674f62da93ed.js"
+    ],
+    "/activities/page": [
+      "static/chunks/webpack-5a016c7a1388e648.js",
+      "static/chunks/4bd1b696-409494caf8c83275.js",
+      "static/chunks/255-a78b69fc76e8afca.js",
+      "static/chunks/main-app-b460cb4dc32f2cfb.js",
+      "static/chunks/112-d8eb11ac5e726e83.js",
+      "static/chunks/221-229ce17977e4c56a.js",
+      "static/chunks/969-4e40bbcfbd3358d5.js",
+      "static/chunks/977-ab16694806cb3149.js",
+      "static/chunks/app/activities/page-60a76751b3012260.js"
+    ],
+    "/login/page": [
+      "static/chunks/webpack-5a016c7a1388e648.js",
+      "static/chunks/4bd1b696-409494caf8c83275.js",
+      "static/chunks/255-a78b69fc76e8afca.js",
+      "static/chunks/main-app-b460cb4dc32f2cfb.js",
+      "static/chunks/112-d8eb11ac5e726e83.js",
+      "static/chunks/app/login/page-4b534e95cb05e005.js"
+    ],
+    "/market-data/page": [
+      "static/chunks/webpack-5a016c7a1388e648.js",
+      "static/chunks/4bd1b696-409494caf8c83275.js",
+      "static/chunks/255-a78b69fc76e8afca.js",
+      "static/chunks/main-app-b460cb4dc32f2cfb.js",
+      "static/chunks/112-d8eb11ac5e726e83.js",
+      "static/chunks/221-229ce17977e4c56a.js",
+      "static/chunks/969-4e40bbcfbd3358d5.js",
+      "static/chunks/977-ab16694806cb3149.js",
+      "static/chunks/app/market-data/page-4f2e38f92fde8301.js"
+    ],
+    "/page": [
+      "static/chunks/webpack-5a016c7a1388e648.js",
+      "static/chunks/4bd1b696-409494caf8c83275.js",
+      "static/chunks/255-a78b69fc76e8afca.js",
+      "static/chunks/main-app-b460cb4dc32f2cfb.js",
+      "static/chunks/112-d8eb11ac5e726e83.js",
+      "static/chunks/221-229ce17977e4c56a.js",
+      "static/chunks/969-4e40bbcfbd3358d5.js",
+      "static/chunks/498-3d8bf8b583375c8e.js",
+      "static/chunks/942-ba56532f7109f67c.js",
+      "static/chunks/977-ab16694806cb3149.js",
+      "static/chunks/app/page-a49cd2bc66d1a954.js"
+    ]
+  }
+}
