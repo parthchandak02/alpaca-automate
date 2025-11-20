@@ -1,6 +1,0 @@
----
-alwaysApply: true
----
-
-
-Please use uv and .venv to run python scripts and insatlling dependencies
