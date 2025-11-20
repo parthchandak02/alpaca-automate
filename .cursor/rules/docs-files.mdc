@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+Keep documentation minimal and focused on getting started. Prioritize "How to use" in README.md. Only create additional .md files when explicitly requested. Keep it short, utilitarian, no fluff. When you have too many tasks you can make a TASKS.md to keep track of them. Once done you can check them off and hence keep a master running list fo tasks in there. 

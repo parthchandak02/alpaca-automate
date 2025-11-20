@@ -1,0 +1,13 @@
+---
+alwaysApply: true
+---
+
+# Design System Rules
+
+**ALWAYS use semantic colors from `frontend/lib/theme.ts` - NEVER use hardcoded Tailwind colors.**
+
+Before using any color, check `frontend/lib/theme.ts` for available semantic colors. Use those instead of hardcoded values like `bg-yellow-500`, `text-green-600`, etc.
+
+To change colors: Edit `frontend/lib/theme.ts` → `cssVariables.dark` - colors auto-sync to CSS variables and Tailwind classes.
+
+**Check existing semantic colors before creating new ones.**

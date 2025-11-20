@@ -1,0 +1,20 @@
+# Cloudflare Workers configuration for Next.js frontend
+# Schema: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "alpaca-trading-frontend"
+main = ".open-next/worker.js"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# Custom domain route for alpaca.parthchandak.info
+route = { pattern = "alpaca.parthchandak.info/*", zone_name = "parthchandak.info" }
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+# Environment variables (NEXT_PUBLIC_* are embedded at build time)
+# These are set in the deployment script, but included here for reference
+[vars]
+NEXT_PUBLIC_API_URL = "https://api-alpaca.parthchandak.info"
+

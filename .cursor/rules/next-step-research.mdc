@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+Whenever the user prompts you to fix an error or investigate or research, you need to use mcp tools like exa, ref and perplexity, to find the best practices for a solution like that which will keep the code robust and reduce complexity, while not adding unnecessary temporary patches or fixes without resolving the underlying issue. we need to be elegant yet raw. 
