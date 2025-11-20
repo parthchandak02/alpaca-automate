@@ -1,0 +1,103 @@
+screenshots
+
+.cursor/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Logs (all log files should be ignored)
+*.log
+logs/
+ui/logs/
+ui/.next/
+ui/npm-install.log
+logs/cloudflare-tunnel-*.log
+
+# Environment variables
+.env
+.env.local
+.env.new
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PM2
+.pm2/
+
+# Live trading data is stored in database (gtt_orders.db), not CSV files
+
+# Database files (contains sensitive order data, order IDs, statuses)
+*.db
+data/*.db
+# SQLite temporary files (WAL mode)
+*.db-shm
+*.db-wal
+data/*.db-shm
+data/*.db-wal
+# Single backup file (precious - keep local only)
+backend/alpaca_orders.backup.db
+
+# Asset cache (regenerated automatically)
+data/alpaca_assets_cache.json
+backend/data/alpaca_assets_cache.json
+
+# Build artifacts
+ui/out/
+ui/.next/
+ui/tsconfig.tsbuildinfo
+ui/node_modules/
+frontend/.next/
+frontend/.open-next/
+frontend/node_modules/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
+
+# Backup files
+*.backup
+*.backup_*
+.env.backup
+.env*.backup
+backups/
+*.db.gz
+
+# Temporary test files (should not be committed)
+scripts/test_gtt_features.py
+scripts/test_database_direct.py
+scripts/README_TESTING.md
+TESTING_CHECKLIST.md
+
+# Python cache
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+
+# Test artifacts
+.monitor.lock
+*.lock
+
+# Cloudflare Wrangler config (downloaded snapshots, not needed in repo)
+wrangler.toml
+
+_migrate/
+
